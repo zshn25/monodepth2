@@ -57,18 +57,29 @@ class KITTIRAWDataset(KITTIDataset):
         super(KITTIRAWDataset, self).__init__(*args, **kwargs)
 
     def get_image_path(self, folder, frame_index, side):
-        f_str = "{:010d}{}".format(frame_index, self.img_ext)
-        image_path = os.path.join(
-            self.data_path, folder, "image_0{}/data".format(self.side_map[side]), f_str)
+        if folder.split("/")[1] == 'cityscapes':
+            f_str = "{}_{}_leftImg8bit.png".format(folder.split("/")[-1],frame_index)
+            image_path = os.path.join(self.data_path,
+                folder, f_str)
+        else:
+            f_str = "{:010d}{}".format(frame_index, self.img_ext)
+            image_path = os.path.join(
+                self.data_path, folder, "image_0{}/data".format(self.side_map[side]), f_str)
         return image_path
 
     def get_depth(self, folder, frame_index, side, do_flip):
-        calib_path = os.path.join(self.data_path, folder.split("/")[0])
-
-        velo_filename = os.path.join(
-            self.data_path,
-            folder,
-            "velodyne_points/data/{:010d}.bin".format(int(frame_index)))
+        calib_path = os.path.join(self.data_path, '/'.join(folder.split("/")[0:3]))
+        
+        if folder.split('/')[1] == 'cityscapes':
+            velo_filename = os.path.join(
+                self.data_path,
+                folder,
+                "velodyne_points/data/{}.bin".format(frame_index))
+        else: 
+            velo_filename = os.path.join(
+                self.data_path,
+                folder,
+                "velodyne_points/data/{:010d}.bin".format(int(frame_index)))
 
         depth_gt = generate_depth_map(calib_path, velo_filename, self.side_map[side])
         depth_gt = skimage.transform.resize(
@@ -87,12 +98,18 @@ class KITTIOdomDataset(KITTIDataset):
         super(KITTIOdomDataset, self).__init__(*args, **kwargs)
 
     def get_image_path(self, folder, frame_index, side):
-        f_str = "{:06d}{}".format(frame_index, self.img_ext)
-        image_path = os.path.join(
-            self.data_path,
-            "sequences/{:02d}".format(int(folder)),
-            "image_{}".format(self.side_map[side]),
-            f_str)
+        if folder.split("/")[1] == 'cityscapes':
+            f_str = "{}_{}_leftImg8bit.png".format(folder.split("/")[-1],frame_index)
+            image_path = os.path.join(self.data_path,
+                "sequences/{:02d}".format(int(folder)),
+                f_str)
+        else:
+            f_str = "{:06d}{}".format(frame_index, self.img_ext)
+            image_path = os.path.join(
+                self.data_path,
+                "sequences/{:02d}".format(int(folder)),
+                "image_{}".format(self.side_map[side]),
+                f_str)
         return image_path
 
 
