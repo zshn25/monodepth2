@@ -17,6 +17,26 @@ import torch.utils.data as data
 from torchvision import transforms
 
 
+KITTI_K = np.array([[0.58, 0, 0.5, 0],
+                           [0, 1.92, 0.5, 0],
+                           [0, 0, 1, 0],
+                           [0, 0, 0, 1]], dtype=np.float32)
+ZERO_K = np.array([[0.318, 0, 0.5, 0],
+            [0, 0.566, 0.5, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]], dtype=np.float32) 
+
+BIKE_K = np.array([[0.58, 0, 0.5, 0],
+                           [0, 1.92, 0.5, 0],
+                           [0, 0, 1, 0],
+                           [0, 0, 0, 1]], dtype=np.float32)
+CITYSCAPES_K = np.array([[0.58, 0, 0.5, 0],
+                           [0, 1.92, 0.5, 0],
+                           [0, 0, 1, 0],
+                           [0, 0, 0, 1]], dtype=np.float32)
+
+K_dict = {'kitti-raw':KITTI_K, 'zero':ZERO_K, 'bike':BIKE_K, 'cityscapes': CITYSCAPES_K}
+
 def pil_loader(path):
     # open path as file to avoid ResourceWarning
     # (https://github.com/python-pillow/Pillow/issues/835)
@@ -162,7 +182,9 @@ class MonoDataset(data.Dataset):
 
         # adjusting intrinsics to match each scale in the pyramid
         for scale in range(self.num_scales):
-            K = self.K.copy()
+            
+            K = K_dict.get(folder.split("/")[1], default=KITTI_K).copy() # filenames are formatted as "<commercial or academic>/<dataset name>/the/rest"
+            # K = self.K.copy()
 
             K[0, :] *= self.width // (2 ** scale)
             K[1, :] *= self.height // (2 ** scale)
