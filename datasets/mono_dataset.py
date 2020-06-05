@@ -183,7 +183,7 @@ class MonoDataset(data.Dataset):
         # adjusting intrinsics to match each scale in the pyramid
         for scale in range(self.num_scales):
             
-            K = K_dict.get(folder.split("/")[1], default=KITTI_K).copy() # filenames are formatted as "<commercial or academic>/<dataset name>/the/rest"
+            K = K_dict.get(folder.split("/")[1], KITTI_K).copy() # filenames are formatted as "<commercial or noncommercial>/<dataset name>/the/rest"
             # K = self.K.copy()
 
             K[0, :] *= self.width // (2 ** scale)
