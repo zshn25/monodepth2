@@ -180,7 +180,7 @@ class MonoDataset(data.Dataset):
                 inputs[("color", i, -1)] = self.get_color(folder, frame_index, other_side, do_flip)
             else:
                 if folder.split("/")[1] == 'cityscapes':
-                    inputs[("color", i, -1)] = self.get_color(folder, "{}_{:06d}".format(frame_index.split('_')[0], int(frame_index.split('_')[1]) + int(i), side, do_flip))
+                    inputs[("color", i, -1)] = self.get_color(folder, "{}_{:06d}".format(frame_index.split('_')[0], int(frame_index.split('_')[1]) + int(i)), side, do_flip)
                 else:    
                     inputs[("color", i, -1)] = self.get_color(folder, int(frame_index) + i, side, do_flip)
 
