@@ -62,7 +62,7 @@ class KITTIRAWDataset(KITTIDataset):
             image_path = os.path.join(self.data_path,
                 folder, f_str)
         else:
-            f_str = "{:010d}{}".format(frame_index, self.img_ext)
+            f_str = "{:010d}{}".format(frame_index, '.png')
             image_path = os.path.join(
                 self.data_path, folder, "image_0{}/data".format(self.side_map[side]), f_str)
         return image_path
@@ -99,6 +99,7 @@ class KITTIOdomDataset(KITTIDataset):
 
     def get_image_path(self, folder, frame_index, side):
         if folder.split("/")[1] == 'cityscapes':
+            print(folder, frame_index, side)
             f_str = "{}_{}_leftImg8bit.png".format(folder.split("/")[-1],frame_index)
             image_path = os.path.join(self.data_path,
                 "sequences/{:02d}".format(int(folder)),
