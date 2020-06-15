@@ -172,7 +172,7 @@ class MonoDataset(data.Dataset):
         if len(line) == 3:
             side = line[2]
         else:
-            side = None
+            side = "2"
 
         for i in self.frame_idxs:
             if i == "s":
