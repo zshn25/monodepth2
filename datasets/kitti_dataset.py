@@ -98,7 +98,7 @@ class KITTIOdomDataset(KITTIDataset):
         super(KITTIOdomDataset, self).__init__(*args, **kwargs)
 
     def get_image_path(self, folder, frame_index, side):
-        if folder.split("/")[1] == 'cityscapes'
+        if folder.split("/")[1] == 'cityscapes':
             f_str = "{}_{}_leftImg8bit.png".format(folder.split("/")[-1],frame_index)
             image_path = os.path.join(self.data_path,
                 "sequences/{:02d}".format(int(folder)),
