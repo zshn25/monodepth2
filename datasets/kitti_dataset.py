@@ -14,7 +14,6 @@ import PIL.Image as pil
 from .kitti_utils import generate_depth_map
 from .mono_dataset import MonoDataset
 
-
 class KITTIDataset(MonoDataset):
     """Superclass for different types of KITTI dataset loaders
     """
@@ -110,15 +109,16 @@ class KITTIDepthDataset(KITTIDataset):
             "image_0{}/data".format(self.side_map[side]),
             f_str)
         return image_path
-
+    
     def get_depth(self, folder, frame_index, side, do_flip):
+        subfolder=os.path.split(folder)[1]
         f_str = "{:010d}.png".format(frame_index)
         depth_path = os.path.join(
             self.data_path,
-            folder,
+            'gtdepths',
+            subfolder,
             "proj_depth/groundtruth/image_0{}".format(self.side_map[side]),
             f_str)
-
         depth_gt = pil.open(depth_path)
         depth_gt = depth_gt.resize(self.full_res_shape, pil.NEAREST)
         depth_gt = np.array(depth_gt).astype(np.float32) / 256
