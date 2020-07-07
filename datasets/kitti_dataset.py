@@ -111,6 +111,7 @@ class KITTIDepthDataset(KITTIDataset):
         return image_path
     
     def get_depth(self, folder, frame_index, side, do_flip):
+        # Download the Depth dotaset and place it in kitti-raw folder with the name gtdepths
         subfolder=os.path.split(folder)[1]
         f_str = "{:010d}.png".format(frame_index)
         depth_path = os.path.join(
@@ -119,10 +120,15 @@ class KITTIDepthDataset(KITTIDataset):
             subfolder,
             "proj_depth/groundtruth/image_0{}".format(self.side_map[side]),
             f_str)
-        depth_gt = pil.open(depth_path)
-        depth_gt = depth_gt.resize(self.full_res_shape, pil.NEAREST)
-        depth_gt = np.array(depth_gt).astype(np.float32) / 256
-
+        try:
+            depth_gt = pil.open(depth_path)
+            depth_gt = depth_gt.resize(self.full_res_shape, pil.NEAREST)
+            depth_gt = np.array(depth_gt).astype(np.float32) / 256
+        except FileNotFoundError:
+            # if file doesn't exist: return all zeros.
+            # Note: Not so effecient. Instead make splitfile without these files
+            depth_gt = np.zeros(self.full_res_shape).astype(np.float32)
+            # Zero's are masked out during loss calculation
         if do_flip:
             depth_gt = np.fliplr(depth_gt)
 
