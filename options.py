@@ -103,6 +103,10 @@ class MonodepthOptions:
                                  type=int,
                                  help="step size of the scheduler",
                                  default=15)
+        self.parser.add_argument("--weight_decay",
+                                 type=float,
+                                 help="L2 regularization weight",
+                                 default=0)
 
         # ABLATION options
         self.parser.add_argument("--v1_multiscale",
@@ -144,6 +148,10 @@ class MonodepthOptions:
                                  type=int,
                                  help="number of dataloader workers",
                                  default=12)
+        self.parser.add_argument("--distributed",
+                                 action="store_true",
+                                 help="Distributed Data Parallel")
+
 
         # LOADING options
         self.parser.add_argument("--load_weights_folder",
