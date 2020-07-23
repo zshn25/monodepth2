@@ -1,0 +1,3 @@
+[submodule "networks/mobilenetv3"]
+	path = networks/mobilenetv3
+	url = https://github.com/d-li14/mobilenetv3.pytorch.git
