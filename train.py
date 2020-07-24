@@ -4,7 +4,9 @@
 # which allows for non-commercial use only, the full terms of which are made
 # available in the LICENSE file.
 
-# To run on Super
+# To run distributed training on SuperServer:
+# Note: There's some error in PoseDecoder during distributed training. Use posecnn instead
+# CUDA_VISIBLE_DEVICES=0,1 python train.py --data_path ../../data/kitti-raw/ --png --use_fastdepth --distributed --pose_model_type posecnn --batch_size 6 --log_dir tmp/fastdepth
 
 from __future__ import absolute_import, division, print_function
 
@@ -49,7 +51,7 @@ def main_worker(rank, opt):
 
     # if opt.distributed:
         # setup(rank, opt.world_size, backend='nccl')
-
+    opt.rank = rank
     num_input_frames = len(opt.frame_ids)
     num_pose_frames = 2 if opt.pose_model_input == "pairs" else num_input_frames
 
@@ -109,7 +111,15 @@ def main_worker(rank, opt):
 
     if opt.distributed:
         for k, v in models.items():
-            models[k] = DDP(models[k].cuda())#, device_ids=[rank])
+            models[k] = DDP(models[k])#, device_ids=[rank])
+        # opt.batch_size *= 2
+        print("Using DistributedDataParallel with batch_size", opt.batch_size)
+    else:
+        if opt.world_size > 1:
+            for k, v in models.items():
+                models[k] = torch.nn.DataParallel(models[k]).cuda() #Data parallel
+            opt.batch_size *= 2
+            print("Using DataParallel with batch_size", opt.batch_size)
 
     #Dataset
     fpath = os.path.join(os.path.dirname(__file__),"splits", opt.split, "{}_files.txt")
@@ -136,18 +146,11 @@ def main_worker(rank, opt):
         val_dataset, opt.batch_size, True,
         num_workers=opt.num_workers, pin_memory=True, drop_last=True)
 
-    if torch.cuda.is_available() and not opt.no_cuda:
-        torch.backends.cudnn.enabled = True
-        torch.backends.cudnn.benchmark = True
-    torch.autograd.set_detect_anomaly(True)
-
-    if opt.distributed:
-        trainer = Trainer(models, train_loader, val_loader, opt)
-    else:
-        trainer = Trainer(models, train_loader, val_loader, opt)
+    trainer = Trainer(models, train_loader, val_loader, opt)
     trainer.train()
     
     if opt.distributed:
+        dist.barrier()
         dist.destroy_process_group()
 
 if __name__ == "__main__":
@@ -156,13 +159,20 @@ if __name__ == "__main__":
     opt = options.parse()
 
     if torch.cuda.is_available() and not opt.no_cuda:
+        if opt.gpu:
+            os.environ["CUDA_VISIBLE_DEVICES"] = opt.gpu # "0,1"
+
         torch.cuda.empty_cache()
+        torch.backends.cudnn.enabled = True
+        torch.backends.cudnn.benchmark = True
+
+    # torch.autograd.set_detect_anomaly(True) # To detect if some errors in Distributed training
+
+    opt.world_size = torch.cuda.device_count()
 
     if opt.distributed:
-        opt.world_size = torch.cuda.device_count()
         
         # Processes
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0,1"
         torch.multiprocessing.set_start_method('spawn')
 
         processes = []

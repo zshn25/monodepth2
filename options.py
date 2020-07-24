@@ -151,6 +151,11 @@ class MonodepthOptions:
         self.parser.add_argument("--distributed",
                                  action="store_true",
                                  help="Distributed Data Parallel")
+        self.parser.add_argument("--gpu",
+                                 nargs="+",
+                                 type=int,
+                                 default=None,
+                                 help="Available gpus")
 
 
         # LOADING options
