@@ -26,7 +26,7 @@ import networks
 from IPython import embed
 
 import sys
-sys.path.append("../fastdepth") # Since cannot import from paths with '-'
+sys.path.append("../fast-depth") # Since cannot import from paths with '-'
 import models as fastdepth
 
 
