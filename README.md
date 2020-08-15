@@ -29,13 +29,6 @@ year = {2019}
 }
 ```
 
-## Changes from the original repo
-
-- Restructured, to be compatible as a module
-- Added FastDepth option as a replacement for the depth network. Assumes `fastdepth` to be in the parent dir.
-- Assumes [depth ground truth](http://www.cvlibs.net/datasets/kitti/eval_depth.php?benchmark=depth_prediction).
- of KITTI to be in the same folder as `kitti-raw` as `kitti-raw/gtdepths/2011_09_26_drive_0005_sync/proj_depth/...` for example. (Combined train and val subfolders into one, as the splitfile already has this split info).
-
 
 
 ## ⚙️ Setup
