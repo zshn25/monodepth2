@@ -23,7 +23,7 @@ class DepthDecoder(nn.Module):
         self.upsample_mode = 'nearest'
         self.scales = scales
 
-        self.num_ch_enc = num_ch_enc #array([ 64,  64, 128, 256, 512])
+        self.num_ch_enc = num_ch_enc
         self.num_ch_dec = np.array([16, 32, 64, 128, 256])
 
         # decoder
