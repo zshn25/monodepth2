@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from networks.layers import transformation_from_parameters
+from layers import transformation_from_parameters
 from utils import readlines
 from options import MonodepthOptions
 from datasets import KITTIOdomDataset

@@ -18,16 +18,12 @@ from tensorboardX import SummaryWriter
 import json
 
 from utils import *
-from datasets.kitti_utils import *
-from networks.layers import *
+from kitti_utils import *
+from layers import *
 
 import datasets
 import networks
 from IPython import embed
-
-import sys
-sys.path.append("../fast-depth") # Since cannot import from paths with '-'
-import models as fastdepth
 
 
 class Trainer:
@@ -55,24 +51,15 @@ class Trainer:
         if self.opt.use_stereo:
             self.opt.frame_ids.append("s")
 
-        if self.opt.use_fastdepth:
-            self.models["fastdepth"] = fastdepth.MobileNetSkipAdd([], 
-                                                                  False, 
-                                                                  "",
-                                                                  self.opt.scales)
-            self.models["fastdepth"].to(self.device)
-            self.parameters_to_train += list(self.models["fastdepth"].parameters())
+        self.models["encoder"] = networks.ResnetEncoder(
+            self.opt.num_layers, self.opt.weights_init == "pretrained")
+        self.models["encoder"].to(self.device)
+        self.parameters_to_train += list(self.models["encoder"].parameters())
 
-        else:
-            self.models["encoder"] = networks.ResnetEncoder(
-                self.opt.num_layers, self.opt.weights_init == "pretrained")
-            self.models["encoder"].to(self.device)
-            self.parameters_to_train += list(self.models["encoder"].parameters())
-
-            self.models["depth"] = networks.DepthDecoder(
-                self.models["encoder"].num_ch_enc, self.opt.scales)
-            self.models["depth"].to(self.device)
-            self.parameters_to_train += list(self.models["depth"].parameters())
+        self.models["depth"] = networks.DepthDecoder(
+            self.models["encoder"].num_ch_enc, self.opt.scales)
+        self.models["depth"].to(self.device)
+        self.parameters_to_train += list(self.models["depth"].parameters())
 
         if self.use_pose_net:
             if self.opt.pose_model_type == "separate_resnet":
@@ -90,13 +77,6 @@ class Trainer:
                     num_frames_to_predict_for=2)
 
             elif self.opt.pose_model_type == "shared":
-                if not hasattr(self.models, "encoder"):
-                    self.models["encoder"] = networks.ResnetEncoder(
-                                            self.opt.num_layers,
-                                            self.opt.weights_init == "pretrained")
-                    self.models["encoder"].to(self.device)
-                    self.parameters_to_train += list(self.models["encoder"].parameters())
-
                 self.models["pose"] = networks.PoseDecoder(
                     self.models["encoder"].num_ch_enc, self.num_pose_frames)
 
@@ -213,7 +193,6 @@ class Trainer:
     def run_epoch(self):
         """Run a single epoch of training and validation
         """
-        self.model_optimizer.step()
         self.model_lr_scheduler.step()
 
         print("Training")
@@ -252,8 +231,6 @@ class Trainer:
         for key, ipt in inputs.items():
             inputs[key] = ipt.to(self.device)
 
-        features = {}
-
         if self.opt.pose_model_type == "shared":
             # If we are using a shared encoder for both depth and pose (as advocated
             # in monodepthv1), then all images are fed separately through the depth encoder.
@@ -261,17 +238,15 @@ class Trainer:
             all_features = self.models["encoder"](all_color_aug)
             all_features = [torch.split(f, self.opt.batch_size) for f in all_features]
 
+            features = {}
             for i, k in enumerate(self.opt.frame_ids):
                 features[k] = [f[i] for f in all_features]
 
             outputs = self.models["depth"](features[0])
         else:
             # Otherwise, we only feed the image with frame_id 0 through the depth encoder
-            if self.opt.use_fastdepth:
-                outputs = self.models["fastdepth"](inputs["color_aug", 0, 0])
-            else:
-                features = self.models["encoder"](inputs["color_aug", 0, 0])
-                outputs = self.models["depth"](features)
+            features = self.models["encoder"](inputs["color_aug", 0, 0])
+            outputs = self.models["depth"](features)
 
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)
@@ -284,7 +259,7 @@ class Trainer:
 
         return outputs, losses
 
-    def predict_poses(self, inputs, features={}):
+    def predict_poses(self, inputs, features):
         """Predict poses between input frames for monocular sequences.
         """
         outputs = {}
@@ -409,7 +384,7 @@ class Trainer:
                 outputs[("color", frame_id, scale)] = F.grid_sample(
                     inputs[("color", frame_id, source_scale)],
                     outputs[("sample", frame_id, scale)],
-                    padding_mode="border", align_corners=True)
+                    padding_mode="border")
 
                 if not self.opt.disable_automasking:
                     outputs[("color_identity", frame_id, scale)] = \

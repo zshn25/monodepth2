@@ -82,9 +82,6 @@ class MonodepthOptions:
                                  type=int,
                                  help="frames to load",
                                  default=[0, -1, 1])
-        self.parser.add_argument("--use_fastdepth",
-                                   action="store_true",
-                                   help="Set if you want to use FastDept instead of the default dpeth network")
 
         # OPTIMIZATION options
         self.parser.add_argument("--batch_size",

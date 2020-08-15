@@ -19,7 +19,7 @@ import torch
 from torchvision import transforms, datasets
 
 import networks
-from networks.layers import disp_to_depth
+from layers import disp_to_depth
 from utils import download_model_if_doesnt_exist
 
 
