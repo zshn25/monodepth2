@@ -99,14 +99,14 @@ class MonoDataset(data.Dataset):
             if "color" in k:
                 n, im, i = k
                 for i in range(self.num_scales):
-                    inputs[n+"_{}_{}".format(im, i)] = self.resize[i](inputs[(n, im, i - 1)])
+                    inputs[(n, im, i)] = self.resize[i](inputs[(n, im, i - 1)])
 
         for k in list(inputs):
             f = inputs[k]
             if "color" in k:
                 n, im, i = k
-                inputs[n+"_{}_{}".format(im, i)] = self.to_tensor(f)
-                inputs[n+"_aug_{}_{}".format(im, i)] = self.to_tensor(color_aug(f))
+                inputs[(n, im, i)] = self.to_tensor(f)
+                inputs[(n + "_aug", im, i)] = self.to_tensor(color_aug(f))
 
     def __len__(self):
         return len(self.filenames)
@@ -156,9 +156,9 @@ class MonoDataset(data.Dataset):
         for i in self.frame_idxs:
             if i == "s":
                 other_side = {"r": "l", "l": "r"}[side]
-                inputs["color_{}_{}".format(i, -1)] = self.get_color(folder, frame_index, other_side, do_flip)
+                inputs[("color", i, -1)] = self.get_color(folder, frame_index, other_side, do_flip)
             else:
-                inputs["color_{}_{}".format(i, -1)] = self.get_color(folder, frame_index + i, side, do_flip)
+                inputs[("color", i, -1)] = self.get_color(folder, frame_index + i, side, do_flip)
 
         # adjusting intrinsics to match each scale in the pyramid
         for scale in range(self.num_scales):
@@ -169,10 +169,8 @@ class MonoDataset(data.Dataset):
 
             inv_K = np.linalg.pinv(K)
 
-            # inputs[("K", scale)] = torch.from_numpy(K)
-            # inputs[("inv_K", scale)] = torch.from_numpy(inv_K)
-            inputs["K_{}".format(scale)] = torch.from_numpy(K)
-            inputs["inv_K_{}".format(scale)] = torch.from_numpy(inv_K)
+            inputs[("K", scale)] = torch.from_numpy(K)
+            inputs[("inv_K", scale)] = torch.from_numpy(inv_K)
 
         if do_color_aug:
             color_aug = transforms.ColorJitter.get_params(
@@ -183,8 +181,8 @@ class MonoDataset(data.Dataset):
         self.preprocess(inputs, color_aug)
 
         for i in self.frame_idxs:
-            del inputs["color_{}_{}".format( i, -1)]
-            del inputs["color_aug_{}_{}".fomrat( i, -1)]
+            del inputs[("color", i, -1)]
+            del inputs[("color_aug", i, -1)]
 
         if self.load_depth:
             depth_gt = self.get_depth(folder, frame_index, side, do_flip)
@@ -199,12 +197,6 @@ class MonoDataset(data.Dataset):
 
             inputs["stereo_T"] = torch.from_numpy(stereo_T)
 
-        # Convert to a normal dict inputs[("disp,0,0")] --> inputs["disp_0_0"]
-        # for k in list(inputs):
-        #     if any( col in k for col in ["color", "color_aug"]):
-        #         n, im, i = k
-        #         inputs[n+"_{}_{}".format(im, i)] = inputs.pop(k)
-        
         return inputs
 
     def get_color(self, folder, frame_index, side, do_flip):

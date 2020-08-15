@@ -82,11 +82,10 @@ class MonodepthOptions:
                                  type=int,
                                  help="frames to load",
                                  default=[0, -1, 1])
-        self.parser.add_argument("--depth_model_arch", # architecture
-                                 type=str,
-                                 help="Depth model architecture",
-                                 choices=["resnet", "fastdepth", "pydnet"],
-                                 default="resnet")
+        self.parser.add_argument("--use_fastdepth",
+                                   action="store_true",
+                                   help="Set if you want to use FastDept instead of the default dpeth network")
+
         # OPTIMIZATION options
         self.parser.add_argument("--batch_size",
                                  type=int,
@@ -142,6 +141,9 @@ class MonodepthOptions:
                                  choices=["posecnn", "separate_resnet", "shared"])
 
         # SYSTEM options
+        self.parser.add_argument("--no_cuda",
+                                 help="if set disables CUDA",
+                                 action="store_true")
         self.parser.add_argument("--num_workers",
                                  type=int,
                                  help="number of dataloader workers",
@@ -152,11 +154,8 @@ class MonodepthOptions:
         self.parser.add_argument("--gpu",
                                  nargs="+",
                                  type=int,
-                                 default=None, # no cuda by default
+                                 default=None,
                                  help="Available gpus")
-        self.parser.add_argument("--amp",
-                                 help="Automatic mixed precision. Requires Pytorch > 1.6",
-                                 action="store_true")
 
 
         # LOADING options
