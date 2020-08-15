@@ -155,11 +155,7 @@ class Trainer:
         for self.epoch in range(self.opt.num_epochs):
             self.run_epoch()
             if (self.epoch + 1) % self.opt.save_frequency == 0:
-                if self.opt.rank == 0 or not self.opt.rank:
-                    # All processes should see same parameters as they all start from same
-                    # random parameters and gradients are synchronized in backward passes.
-                    # Therefore, saving it in one process is sufficient.
-                    self.save_model()
+                self.save_model()
 
     def run_epoch(self):
         """Run a single epoch of training and validation
@@ -587,15 +583,11 @@ class Trainer:
             "Cannot find folder {}".format(self.opt.load_weights_folder)
         print("loading model from folder {}".format(self.opt.load_weights_folder))
 
-        if self.opt.distributed:
-            torch.distributed.barrier()
-            map_location = {'cuda:%d' % 0: 'cuda:%d' % self.opt.rank}
-
         for n in self.opt.models_to_load:
             print("Loading {} weights...".format(n))
             path = os.path.join(self.opt.load_weights_folder, "{}.pth".format(n))
             model_dict = self.models[n].state_dict()
-            pretrained_dict = torch.load(path, map_location=lambda storage, loc: storage)
+            pretrained_dict = torch.load(path)
             pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
             model_dict.update(pretrained_dict)
             self.models[n].load_state_dict(model_dict)
@@ -604,7 +596,7 @@ class Trainer:
         optimizer_load_path = os.path.join(self.opt.load_weights_folder, "adam.pth")
         if os.path.isfile(optimizer_load_path):
             print("Loading Adam weights")
-            optimizer_dict = torch.load(optimizer_load_path, map_location=lambda storage, loc: storage)
+            optimizer_dict = torch.load(optimizer_load_path)
             self.model_optimizer.load_state_dict(optimizer_dict)
         else:
             print("Cannot find Adam weights so Adam is randomly initialized")
