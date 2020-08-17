@@ -13,7 +13,7 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 import json
 
@@ -21,8 +21,6 @@ from utils import *
 from datasets.kitti_utils import *
 from networks.layers import *
 
-import datasets
-import networks
 from IPython import embed
 
 import sys
@@ -43,16 +41,17 @@ class Trainer:
         assert self.opt.height % 32 == 0, "'height' must be a multiple of 32"
         assert self.opt.width % 32 == 0, "'width' must be a multiple of 32"
 
-        self.models = {}
         self.parameters_to_train = []
 
         self.device = torch.device("cpu" if self.opt.gpu is None else "cuda:{}".format(self.opt.rank) if self.opt.rank else "cuda")
 
         # Models
         for model_name in self.models.keys():
-            self.models[model_name].to(device)
-            parameters_to_train += list(self.models[model_name].parameters())
+            self.models[model_name].to(self.device)
+            self.parameters_to_train += list(self.models[model_name].parameters())
         
+        self.val_iter = iter(self.val_loader)
+
         self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate, weight_decay=self.opt.weight_decay)
         self.model_lr_scheduler = optim.lr_scheduler.StepLR(
             self.model_optimizer, self.opt.scheduler_step_size, 0.1)
@@ -90,7 +89,7 @@ class Trainer:
 
         print("Using split:\n  ", self.opt.split)
         print("There are {:d} training items and {:d} validation items\n".format(
-            len(train_dataset), len(val_dataset)))
+            train_loader.__len__() * self.opt.batch_size, val_loader.__len__() * self.opt.batch_size))
 
         self.save_opts()
 
@@ -174,7 +173,7 @@ class Trainer:
             outputs = self.models["depth"](features[0])
         else:
             # Otherwise, we only feed the image with frame_id 0 through the depth encoder
-            if self.opt.use_fastdepth:
+            if not (self.opt.depth_model_arch == "resnet"): # if models are fastdepth / pydnet
                 outputs = self.models["fastdepth"](inputs["color_aug", 0, 0])
             else:
                 features = self.models["encoder"](inputs["color_aug", 0, 0])
@@ -183,7 +182,7 @@ class Trainer:
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)
 
-        if self.use_pose_net:
+        if self.opt.use_pose_net:
             outputs.update(self.predict_poses(inputs, features))
 
         self.generate_images_pred(inputs, outputs)
@@ -195,7 +194,7 @@ class Trainer:
         """Predict poses between input frames for monocular sequences.
         """
         outputs = {}
-        if self.num_pose_frames == 2:
+        if self.opt.num_pose_frames == 2:
             # In this setting, we compute the pose to each source frame via a
             # separate forward pass through the pose network.
 
@@ -423,7 +422,7 @@ class Trainer:
             total_loss += loss
             losses["loss/{}".format(scale)] = loss
 
-        total_loss /= self.num_scales
+        total_loss /= self.opt.num_scales
         losses["loss"] = total_loss
         return losses
 
@@ -463,7 +462,7 @@ class Trainer:
         samples_per_sec = self.opt.batch_size / duration
         time_sofar = time.time() - self.start_time
         training_time_left = (
-            self.num_total_steps / self.step - 1.0) * time_sofar if self.step > 0 else 0
+            self.opt.num_total_steps / self.step - 1.0) * time_sofar if self.step > 0 else 0
         print_string = "epoch {:>3} | batch {:>6} | examples/s: {:5.1f}" + \
             " | loss: {:.5f} | time elapsed: {} | time left: {}"
         print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss,

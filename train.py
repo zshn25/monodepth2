@@ -30,17 +30,19 @@ if __name__ == "__main__":
     options = MonodepthOptions()
     opt = options.parse()
 
-    num_scales = len(opt.scales)
+    opt.num_scales = len(opt.scales)
     num_input_frames = len(opt.frame_ids)
-    num_pose_frames = 2 if opt.pose_model_input == "pairs" else num_input_frames
+    opt.num_pose_frames = 2 if opt.pose_model_input == "pairs" else num_input_frames
 
     assert opt.frame_ids[0] == 0, "frame_ids must start with 0"
 
-    use_pose_net = not (opt.use_stereo and opt.frame_ids == [0])
+    opt.use_pose_net = not (opt.use_stereo and opt.frame_ids == [0])
 
     if opt.use_stereo:
         opt.frame_ids.append("s")
 
+    # Models
+    models = {}
     if opt.depth_model_arch == "fastdepth":
         models["fastdepth"] = fastdepth.MobileNetSkipAdd([], 
                                                                 False, 
@@ -55,12 +57,12 @@ if __name__ == "__main__":
         models["depth"] = networks.DepthDecoder(
             models["encoder"].num_ch_enc, opt.scales)
 
-    if use_pose_net:
+    if opt.use_pose_net:
         if opt.pose_model_type == "separate_resnet":
             models["pose_encoder"] = networks.ResnetEncoder(
                 opt.num_layers,
                 opt.weights_init == "pretrained",
-                num_input_images=num_pose_frames)
+                num_input_images=opt.num_pose_frames)
 
             models["pose"] = networks.PoseDecoder(
                 models["pose_encoder"].num_ch_enc,
@@ -74,7 +76,7 @@ if __name__ == "__main__":
                                         opt.weights_init == "pretrained")
 
             models["pose"] = networks.PoseDecoder(
-                models["encoder"].num_ch_enc, num_pose_frames)
+                models["encoder"].num_ch_enc, opt.num_pose_frames)
 
         elif opt.pose_model_type == "posecnn":
             models["pose"] = networks.PoseCNN(
@@ -103,7 +105,7 @@ if __name__ == "__main__":
     img_ext = '.png' if opt.png else '.jpg'
 
     num_train_samples = len(train_filenames)
-    num_total_steps = num_train_samples // opt.batch_size * opt.num_epochs
+    opt.num_total_steps = num_train_samples // opt.batch_size * opt.num_epochs
 
     train_dataset = dataset(
         opt.data_path, train_filenames, opt.height, opt.width,
@@ -117,7 +119,8 @@ if __name__ == "__main__":
     val_loader = DataLoader(
         val_dataset, opt.batch_size, True,
         num_workers=opt.num_workers, pin_memory=True, drop_last=True)
-    val_iter = iter(val_loader)
 
-    trainer = Trainer(opt)
+
+    opt.rank = None
+    trainer = Trainer(opt, models, train_loader, val_loader)
     trainer.train()
