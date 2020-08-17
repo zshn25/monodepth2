@@ -25,14 +25,14 @@ import datasets
 import networks
 from IPython import embed
 
-import sys
-sys.path.append("../fastdepth") # Since cannot import from paths with '-'
-import models as fastdepth
 
 
 class Trainer:
-    def __init__(self, options):
+    def __init__(self, options, models, train_loader, val_loader):
         self.opt = options
+        self.train_loader = train_loader
+        self.val_loader = val_loader
+        self.models = models
         self.log_path = os.path.join(self.opt.log_dir, self.opt.model_name)
 
         # checking height and width are multiples of 32
@@ -42,84 +42,14 @@ class Trainer:
         self.models = {}
         self.parameters_to_train = []
 
-        self.device = torch.device("cpu" if self.opt.no_cuda else "cuda")
+        self.device = torch.device("cpu" if self.opt.gpu is None else "cuda:{}".format(self.opt.rank) if self.opt.rank else "cuda")
 
-        self.num_scales = len(self.opt.scales)
-        self.num_input_frames = len(self.opt.frame_ids)
-        self.num_pose_frames = 2 if self.opt.pose_model_input == "pairs" else self.num_input_frames
-
-        assert self.opt.frame_ids[0] == 0, "frame_ids must start with 0"
-
-        self.use_pose_net = not (self.opt.use_stereo and self.opt.frame_ids == [0])
-
-        if self.opt.use_stereo:
-            self.opt.frame_ids.append("s")
-
-        if self.opt.use_fastdepth:
-            self.models["fastdepth"] = fastdepth.MobileNetSkipAdd([], 
-                                                                  False, 
-                                                                  "",
-                                                                  self.opt.scales)
-            self.models["fastdepth"].to(self.device)
-            self.parameters_to_train += list(self.models["fastdepth"].parameters())
-
-        else:
-            self.models["encoder"] = networks.ResnetEncoder(
-                self.opt.num_layers, self.opt.weights_init == "pretrained")
-            self.models["encoder"].to(self.device)
-            self.parameters_to_train += list(self.models["encoder"].parameters())
-
-            self.models["depth"] = networks.DepthDecoder(
-                self.models["encoder"].num_ch_enc, self.opt.scales)
-            self.models["depth"].to(self.device)
-            self.parameters_to_train += list(self.models["depth"].parameters())
-
-        if self.use_pose_net:
-            if self.opt.pose_model_type == "separate_resnet":
-                self.models["pose_encoder"] = networks.ResnetEncoder(
-                    self.opt.num_layers,
-                    self.opt.weights_init == "pretrained",
-                    num_input_images=self.num_pose_frames)
-
-                self.models["pose_encoder"].to(self.device)
-                self.parameters_to_train += list(self.models["pose_encoder"].parameters())
-
-                self.models["pose"] = networks.PoseDecoder(
-                    self.models["pose_encoder"].num_ch_enc,
-                    num_input_features=1,
-                    num_frames_to_predict_for=2)
-
-            elif self.opt.pose_model_type == "shared":
-                if not hasattr(self.models, "encoder"):
-                    self.models["encoder"] = networks.ResnetEncoder(
-                                            self.opt.num_layers,
-                                            self.opt.weights_init == "pretrained")
-                    self.models["encoder"].to(self.device)
-                    self.parameters_to_train += list(self.models["encoder"].parameters())
-
-                self.models["pose"] = networks.PoseDecoder(
-                    self.models["encoder"].num_ch_enc, self.num_pose_frames)
-
-            elif self.opt.pose_model_type == "posecnn":
-                self.models["pose"] = networks.PoseCNN(
-                    self.num_input_frames if self.opt.pose_model_input == "all" else 2)
-
-            self.models["pose"].to(self.device)
-            self.parameters_to_train += list(self.models["pose"].parameters())
-
-        if self.opt.predictive_mask:
-            assert self.opt.disable_automasking, \
-                "When using predictive_mask, please disable automasking with --disable_automasking"
-
-            # Our implementation of the predictive masking baseline has the the same architecture
-            # as our depth decoder. We predict a separate mask for each source frame.
-            self.models["predictive_mask"] = networks.DepthDecoder(
-                self.models["encoder"].num_ch_enc, self.opt.scales,
-                num_output_channels=(len(self.opt.frame_ids) - 1))
-            self.models["predictive_mask"].to(self.device)
-            self.parameters_to_train += list(self.models["predictive_mask"].parameters())
-
-        self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate)
+        # Models
+        for model_name in self.models.keys():
+            self.models[model_name].to(device)
+            parameters_to_train += list(self.models[model_name].parameters())
+        
+        self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate, weight_decay=self.opt.weight_decay)
         self.model_lr_scheduler = optim.lr_scheduler.StepLR(
             self.model_optimizer, self.opt.scheduler_step_size, 0.1)
 
@@ -130,34 +60,7 @@ class Trainer:
         print("Models and tensorboard events files are saved to:\n  ", self.opt.log_dir)
         print("Training is using:\n  ", self.device)
 
-        # data
-        datasets_dict = {"kitti": datasets.KITTIRAWDataset,
-                         "kitti_odom": datasets.KITTIOdomDataset}
-        self.dataset = datasets_dict[self.opt.dataset]
-
-        fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
-
-        train_filenames = readlines(fpath.format("train"))
-        val_filenames = readlines(fpath.format("val"))
-        img_ext = '.png' if self.opt.png else '.jpg'
-
-        num_train_samples = len(train_filenames)
-        self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
-
-        train_dataset = self.dataset(
-            self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=True, img_ext=img_ext)
-        self.train_loader = DataLoader(
-            train_dataset, self.opt.batch_size, True,
-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
-        val_dataset = self.dataset(
-            self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, 4, is_train=False, img_ext=img_ext)
-        self.val_loader = DataLoader(
-            val_dataset, self.opt.batch_size, True,
-            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
-        self.val_iter = iter(self.val_loader)
-
+       
         self.writers = {}
         for mode in ["train", "val"]:
             self.writers[mode] = SummaryWriter(os.path.join(self.log_path, mode))
@@ -478,7 +381,7 @@ class Trainer:
                 reprojection_losses *= mask
 
                 # add a loss pushing mask to 1 (using nn.BCELoss for stability)
-                weighting_loss = 0.2 * nn.BCELoss()(mask, torch.ones(mask.shape).cuda())
+                weighting_loss = 0.2 * nn.BCELoss()(mask, torch.ones(mask.shape).to(self.device))
                 loss += weighting_loss.mean()
 
             if self.opt.avg_reprojection:
@@ -489,7 +392,7 @@ class Trainer:
             if not self.opt.disable_automasking:
                 # add random numbers to break ties
                 identity_reprojection_loss += torch.randn(
-                    identity_reprojection_loss.shape).cuda() * 0.00001
+                    identity_reprojection_loss.shape).to(self.device) * 0.00001
 
                 combined = torch.cat((identity_reprojection_loss, reprojection_loss), dim=1)
             else:
@@ -638,7 +541,7 @@ class Trainer:
             print("Loading {} weights...".format(n))
             path = os.path.join(self.opt.load_weights_folder, "{}.pth".format(n))
             model_dict = self.models[n].state_dict()
-            pretrained_dict = torch.load(path)
+            pretrained_dict = torch.load(path, map_location=self.device)
             pretrained_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict}
             model_dict.update(pretrained_dict)
             self.models[n].load_state_dict(model_dict)
@@ -647,7 +550,7 @@ class Trainer:
         optimizer_load_path = os.path.join(self.opt.load_weights_folder, "adam.pth")
         if os.path.isfile(optimizer_load_path):
             print("Loading Adam weights")
-            optimizer_dict = torch.load(optimizer_load_path)
+            optimizer_dict = torch.load(optimizer_load_path, map_location=self.device)
             self.model_optimizer.load_state_dict(optimizer_dict)
         else:
             print("Cannot find Adam weights so Adam is randomly initialized")

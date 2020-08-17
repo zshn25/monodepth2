@@ -1,0 +1,6 @@
+[submodule "networks/pydnet"]
+	path = networks/pydnet
+	url = https://github.com/zshn25/Pydnet-Pytorch.git
+[submodule "networks/fastdepth"]
+	path = networks/fastdepth
+	url = https://github.com/zshn25/fast-depth.git
