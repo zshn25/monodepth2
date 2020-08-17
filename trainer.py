@@ -25,6 +25,10 @@ import datasets
 import networks
 from IPython import embed
 
+import sys
+sys.path.append("../fast-depth") # Since cannot import from paths with '-'
+import models as fastdepth
+
 
 
 class Trainer:
@@ -116,6 +120,7 @@ class Trainer:
     def run_epoch(self):
         """Run a single epoch of training and validation
         """
+        self.model_optimizer.step()
         self.model_lr_scheduler.step()
 
         print("Training")
@@ -154,6 +159,8 @@ class Trainer:
         for key, ipt in inputs.items():
             inputs[key] = ipt.to(self.device)
 
+        features = {}
+
         if self.opt.pose_model_type == "shared":
             # If we are using a shared encoder for both depth and pose (as advocated
             # in monodepthv1), then all images are fed separately through the depth encoder.
@@ -161,7 +168,6 @@ class Trainer:
             all_features = self.models["encoder"](all_color_aug)
             all_features = [torch.split(f, self.opt.batch_size) for f in all_features]
 
-            features = {}
             for i, k in enumerate(self.opt.frame_ids):
                 features[k] = [f[i] for f in all_features]
 
@@ -185,7 +191,7 @@ class Trainer:
 
         return outputs, losses
 
-    def predict_poses(self, inputs, features):
+    def predict_poses(self, inputs, features={}):
         """Predict poses between input frames for monocular sequences.
         """
         outputs = {}
