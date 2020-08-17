@@ -15,6 +15,11 @@ from options import MonodepthOptions
 import torch
 from torch.utils.data import DataLoader
 
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from torch.multiprocessing import Process
+from torch.nn.parallel import DistributedDataParallel as DDP
+
 from utils import *
 from datasets.kitti_utils import *
 from networks.layers import *
@@ -24,11 +29,17 @@ import networks
 from networks.fastdepth import models as fastdepth
 from networks.pydnet.pydnet import Pyddepth
 
+def setup(rank, world_size, backend='gloo'):
+    """ Initialize the distributed environment. """
+    os.environ['MASTER_ADDR'] = '127.0.0.1'
+    os.environ['MASTER_PORT'] = '29500'
+    # create default process group
+    dist.init_process_group(backend, rank=rank, world_size=world_size)
 
-if __name__ == "__main__":
-
-    options = MonodepthOptions()
-    opt = options.parse()
+def main_worker(rank, opt):
+    opt.rank = rank
+    if opt.distributed:
+        setup(opt.rank, opt.world_size, "nccl")
 
     opt.num_scales = len(opt.scales)
     num_input_frames = len(opt.frame_ids)
@@ -49,7 +60,9 @@ if __name__ == "__main__":
                                                                 "",
                                                                 opt.scales)
     elif opt.depth_model_arch == "pydnet":
-        models["fastdepth"] = Pyddepth(opt.scales, mobile_version = False, my_version=False)
+        models["fastdepth"] = Pyddepth(opt.scales, 
+                                mobile_version = True, 
+                                my_version=False)
     else:
         models["encoder"] = networks.ResnetEncoder(
             opt.num_layers, opt.weights_init == "pretrained")
@@ -92,6 +105,12 @@ if __name__ == "__main__":
             models["encoder"].num_ch_enc, opt.scales,
             num_output_channels=(len(opt.frame_ids) - 1))
 
+    # Distributed
+    if opt.gpu: # is not None
+        if opt.distributed:
+            for model_name in models.keys():
+                models[model_name] = DDP(models[model_name].to(opt.rank), device_ids=[opt.rank])
+
     # Dataset
      # data
     datasets_dict = {"kitti": datasets.KITTIRAWDataset,
@@ -120,7 +139,39 @@ if __name__ == "__main__":
         val_dataset, opt.batch_size, True,
         num_workers=opt.num_workers, pin_memory=True, drop_last=True)
 
+    # torch.autograd.set_detect_anomaly(True)
 
-    opt.rank = None
     trainer = Trainer(opt, models, train_loader, val_loader)
     trainer.train()
+
+    if opt.distributed:
+        dist.barrier()
+        dist.destroy_process_group()
+
+
+if __name__ == "__main__":
+
+    options = MonodepthOptions()
+    opt = options.parse()
+
+    if opt.gpu: #is not None
+        opt.world_size = len(opt.gpu)
+        
+        os.environ["CUDA_VISIBLE_DEVICES"] =  ",".join(str(x) for x in opt.gpu) # "0,1"
+        assert torch.cuda.is_available(), "No GPU detected. Remove --gpu argument and try again"
+
+        torch.cuda.empty_cache()
+        torch.backends.cudnn.enabled = True
+        torch.backends.cudnn.benchmark = True
+
+        if opt.distributed:
+            mp.spawn(main_worker,
+                    args=(opt,),
+                    nprocs=1, # 1 process per gpu 
+                    join=True)
+        else:
+            main_worker(None, opt)
+    else:
+        main_worker(None, opt)
+
+   

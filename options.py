@@ -155,6 +155,9 @@ class MonodepthOptions:
         self.parser.add_argument("--amp",
                                  help="Automatic mixed precision. Requires Pytorch > 1.6",
                                  action="store_true")
+        self.parser.add_argument("--distributed",
+                                 help="use DistributedDataParallel",
+                                 action="store_true")
 
         # LOADING options
         self.parser.add_argument("--load_weights_folder",
