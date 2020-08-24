@@ -8,12 +8,21 @@ from __future__ import absolute_import, division, print_function
 
 import numpy as np
 import time
+import os
 
 import torch
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.utils.data import DataLoader
-from torch.utils.tensorboard import SummaryWriter
+if torch.__version__ < "1.6":
+    from tensorboardX import SummaryWriter
+else:
+    from torch.utils.tensorboard import SummaryWriter
+
+import torch.distributed as dist
+import torch.multiprocessing as mp
+from torch.multiprocessing import Process
+from torch.nn.parallel import DistributedDataParallel as DDP
 
 import json
 
@@ -21,37 +30,174 @@ from utils import *
 from datasets.kitti_utils import *
 from networks.layers import *
 
+import datasets
+import networks
 from IPython import embed
 
-import sys
-sys.path.append("../fast-depth") # Since cannot import from paths with '-'
-import models as fastdepth
+from networks.fastdepth import models as fastdepth
+from networks.pydnet.pydnet import Pyddepth
+#import sys
+#sys.path.append("../fastdepth") # Since cannot import from paths with '-'
+#import models as fastdepth
 
+# def setup(rank, world_size):
+#     os.environ['MASTER_ADDR'] = 'localhost'
+#     os.environ['MASTER_PORT'] = '12351'
+
+#     # initialize the process group
+#     dist.init_process_group("gloo", rank=rank, world_size=world_size)
 
 
 class Trainer:
-    def __init__(self, options, models, train_loader, val_loader):
+    def __init__(self, rank, options):
         self.opt = options
-        self.train_loader = train_loader
-        self.val_loader = val_loader
-        self.models = models
+        self.opt.rank = rank
+
+        # DDP setup
+        if self.opt.distributed:
+            os.environ['MASTER_ADDR'] = '127.0.0.1'
+            os.environ['MASTER_PORT'] = "29501"
+            dist.init_process_group(backend="nccl", init_method="env://",
+                            world_size=self.opt.world_size, rank=self.opt.rank)
+            torch.cuda.set_device(self.opt.rank)
+                
+        self.device = torch.device("cpu" if self.opt.gpu is None else "cuda:{}".format(self.opt.rank) if self.opt.rank is not None else "cuda")
+
         self.log_path = os.path.join(self.opt.log_dir, self.opt.model_name)
+
+        # Automatic mixed precision
+        if self.opt.amp:
+            try:
+                self.scaler = torch.cuda.amp.GradScaler()
+                print("Using Automatic Mixed Precision")
+            except Exception as e:
+                raise(e, "Pytorhc version > 1.6 required for AMP")
 
         # checking height and width are multiples of 32
         assert self.opt.height % 32 == 0, "'height' must be a multiple of 32"
         assert self.opt.width % 32 == 0, "'width' must be a multiple of 32"
 
+        self.models = {}
         self.parameters_to_train = []
 
-        self.device = torch.device("cpu" if self.opt.gpu is None else "cuda:{}".format(self.opt.rank) if self.opt.rank else "cuda")
+        self.num_scales = len(self.opt.scales)
+        self.num_input_frames = len(self.opt.frame_ids)
+        self.num_pose_frames = 2 if self.opt.pose_model_input == "pairs" else self.num_input_frames
 
-        # Models
-        for model_name in self.models.keys():
-            self.models[model_name].to(self.device)
-            self.parameters_to_train += list(self.models[model_name].parameters())
+        assert self.opt.frame_ids[0] == 0, "frame_ids must start with 0"
+
+        self.use_pose_net = not (self.opt.use_stereo and self.opt.frame_ids == [0])
+
+        if self.opt.use_stereo:
+            self.opt.frame_ids.append("s")
+
+        if self.opt.depth_model_arch == "pydnet":
+            self.models["fastdepth"] = Pyddepth(self.opt.scales, True, False)
+            self.models["fastdepth"].to(self.device)
+            if self.opt.distributed:
+                self.models["fastdepth"] = DDP(self.models["fastdepth"],
+                                               device_ids=[self.opt.rank], 
+                                               broadcast_buffers=False, 
+                                               find_unused_parameters=True) ## Multiple GPU
+            self.parameters_to_train += list(self.models["fastdepth"].parameters())
+        elif self.opt.depth_model_arch == "fastdepth":
+            self.models["fastdepth"] = fastdepth.MobileNetSkipAddMultiScale(False,
+                            pretrained_path = "", scales = self.opt.scales)
+
+            self.models["fastdepth"].to(self.device)
+            if self.opt.distributed:
+                self.models["fastdepth"] = DDP(self.models["fastdepth"],
+                                               device_ids=[self.opt.rank], 
+                                               broadcast_buffers=False, 
+                                               find_unused_parameters=True) ## Multiple GPU
+            self.parameters_to_train += list(self.models["fastdepth"].parameters())
+
+        else:
+            self.models["encoder"] = networks.ResnetEncoder(
+                self.opt.num_layers, self.opt.weights_init == "pretrained")
+            self.models["encoder"].to(self.device)
+            if self.opt.distributed:
+                self.models["encoder"] = DDP(self.models["encoder"],
+                                               device_ids=[self.opt.rank], 
+                                               broadcast_buffers=False, 
+                                               find_unused_parameters=True) ## Multiple GPU
+            self.parameters_to_train += list(self.models["encoder"].parameters())
+
+            self.models["depth"] = networks.DepthDecoder(
+                self.models["encoder"].num_ch_enc, self.opt.scales)
+            self.models["depth"].to(self.device)
+            if self.opt.distributed:
+                self.models["depth"] = DDP(self.models["depth"],
+                                               device_ids=[self.opt.rank], 
+                                               broadcast_buffers=False, 
+                                               find_unused_parameters=True) ## Multiple GPU
+            self.parameters_to_train += list(self.models["depth"].parameters())
+
+        if self.use_pose_net:
+            if self.opt.pose_model_type == "separate_resnet":
+                self.models["pose_encoder"] = networks.ResnetEncoder(
+                    self.opt.num_layers,
+                    self.opt.weights_init == "pretrained",
+                    num_input_images=self.num_pose_frames)
+
+                self.models["pose"] = networks.PoseDecoder(
+                    self.models["pose_encoder"].num_ch_enc,
+                    num_input_features=1,
+                    num_frames_to_predict_for=2)
+
+                self.models["pose_encoder"].to(self.device)
+                if self.opt.distributed:
+                    self.models["pose_encoder"] = DDP(self.models["pose_encoder"],
+                                                device_ids=[self.opt.rank], 
+                                                broadcast_buffers=False, 
+                                                find_unused_parameters=True) ## Multiple GPU
+                self.parameters_to_train += list(self.models["pose_encoder"].parameters())
+
+            elif self.opt.pose_model_type == "shared":
+                if not hasattr(self.models, "encoder"):
+                    self.models["encoder"] = networks.ResnetEncoder(
+                                            self.opt.num_layers,
+                                            self.opt.weights_init == "pretrained")
+                    self.models["encoder"].to(self.device)
+                    if self.opt.distributed:
+                        self.models["encoder"] = DDP(self.models["encoder"],
+                                                    device_ids=[self.opt.rank], 
+                                                    broadcast_buffers=False, 
+                                                    find_unused_parameters=True) ## Multiple GPU
+                    self.parameters_to_train += list(self.models["encoder"].parameters())
+
+                self.models["pose"] = networks.PoseDecoder(
+                    self.models["encoder"].num_ch_enc, self.num_pose_frames)
+
+            elif self.opt.pose_model_type == "posecnn":
+                self.models["pose"] = networks.PoseCNN(
+                    self.num_input_frames if self.opt.pose_model_input == "all" else 2)
+
+            self.models["pose"].to(self.device)
+            if self.opt.distributed:
+                self.models["pose"] = DDP(self.models["pose"],
+                                               device_ids=[self.opt.rank], 
+                                               broadcast_buffers=False, 
+                                               find_unused_parameters=True) ## Multiple GPU
+            self.parameters_to_train += list(self.models["pose"].parameters())
+
+        if self.opt.predictive_mask:
+            assert self.opt.disable_automasking, \
+                "When using predictive_mask, please disable automasking with --disable_automasking"
+
+            # Our implementation of the predictive masking baseline has the the same architecture
+            # as our depth decoder. We predict a separate mask for each source frame.
+            self.models["predictive_mask"] = networks.DepthDecoder(
+                self.models["encoder"].num_ch_enc, self.opt.scales,
+                num_output_channels=(len(self.opt.frame_ids) - 1))
+            self.models["predictive_mask"].to(self.device)
+            if self.opt.distributed:
+                self.models["predictive_mask"] = DDP(self.models["predictive_mask"],
+                                               device_ids=[self.opt.rank], 
+                                               broadcast_buffers=False, 
+                                               find_unused_parameters=True) ## Multiple GPU
+            self.parameters_to_train += list(self.models["predictive_mask"].parameters())
         
-        self.val_iter = iter(self.val_loader)
-
         self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate, weight_decay=self.opt.weight_decay)
         self.model_lr_scheduler = optim.lr_scheduler.StepLR(
             self.model_optimizer, self.opt.scheduler_step_size, 0.1)
@@ -63,7 +209,42 @@ class Trainer:
         print("Models and tensorboard events files are saved to:\n  ", self.opt.log_dir)
         print("Training is using:\n  ", self.device)
 
-       
+        if self.opt.distributed:
+            self.opt.batch_size = int(self.opt.batch_size / self.opt.world_size)
+            self.opt.num_workers = int(self.opt.num_workers / self.opt.world_size)
+
+        # data
+        datasets_dict = {"kitti": datasets.KITTIRAWDataset,
+                         "kitti_odom": datasets.KITTIOdomDataset}
+        self.dataset = datasets_dict[self.opt.dataset]
+
+        fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
+
+        train_filenames = readlines(fpath.format("train"))
+        val_filenames = readlines(fpath.format("val"))
+        img_ext = '.png' if self.opt.png else '.jpg'
+
+        num_train_samples = len(train_filenames)
+        self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
+
+        train_dataset = self.dataset(
+            self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
+            self.opt.frame_ids, self.num_scales, is_train=True, img_ext=img_ext)
+        if self.opt.distributed:
+            train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
+        else:
+            train_sampler = None
+        self.train_loader = DataLoader(
+            train_dataset, self.opt.batch_size, shuffle=(train_sampler is None),
+            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True, sampler=train_sampler)
+        val_dataset = self.dataset(
+            self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
+            self.opt.frame_ids, self.num_scales, is_train=False, img_ext=img_ext)
+        self.val_loader = DataLoader(
+            val_dataset, self.opt.batch_size, shuffle=(train_sampler is None),
+            num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
+        self.val_iter = iter(self.val_loader)
+
         self.writers = {}
         for mode in ["train", "val"]:
             self.writers[mode] = SummaryWriter(os.path.join(self.log_path, mode))
@@ -89,9 +270,14 @@ class Trainer:
 
         print("Using split:\n  ", self.opt.split)
         print("There are {:d} training items and {:d} validation items\n".format(
-            train_loader.__len__() * self.opt.batch_size, val_loader.__len__() * self.opt.batch_size))
+            len(train_dataset), len(val_dataset)))
 
         self.save_opts()
+
+        self.train()
+
+        if self.opt.distributed:
+            dist.destroy_process_group()
 
     def set_train(self):
         """Convert all models to training mode
@@ -114,7 +300,14 @@ class Trainer:
         for self.epoch in range(self.opt.num_epochs):
             self.run_epoch()
             if (self.epoch + 1) % self.opt.save_frequency == 0:
-                self.save_model()
+                if self.opt.distributed:
+                    if self.opt.rank == 0:
+                        # All processes should see same parameters as they all start from same
+                        # random parameters and gradients are synchronized in backward passes.
+                        # Therefore, saving it in one process is sufficient.
+                        self.save_model()
+                else:
+                    self.save_model()
 
     def run_epoch(self):
         """Run a single epoch of training and validation
@@ -132,7 +325,12 @@ class Trainer:
             outputs, losses = self.process_batch(inputs)
 
             self.model_optimizer.zero_grad()
-            losses["loss"].backward()
+            if self.opt.amp: # Automatic mixed precision
+                self.scaler.scale(losses["loss"]).backward()
+                self.scaler.step(self.model_optimizer)
+                self.scaler.update()
+            else:
+                losses["loss"].backward()
             self.model_optimizer.step()
 
             duration = time.time() - before_op_time
@@ -173,7 +371,7 @@ class Trainer:
             outputs = self.models["depth"](features[0])
         else:
             # Otherwise, we only feed the image with frame_id 0 through the depth encoder
-            if not (self.opt.depth_model_arch == "resnet"): # if models are fastdepth / pydnet
+            if self.opt.depth_model_arch in ["fastdepth", "pydnet"]:
                 outputs = self.models["fastdepth"](inputs["color_aug", 0, 0])
             else:
                 features = self.models["encoder"](inputs["color_aug", 0, 0])
@@ -182,7 +380,7 @@ class Trainer:
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)
 
-        if self.opt.use_pose_net:
+        if self.use_pose_net:
             outputs.update(self.predict_poses(inputs, features))
 
         self.generate_images_pred(inputs, outputs)
@@ -194,7 +392,7 @@ class Trainer:
         """Predict poses between input frames for monocular sequences.
         """
         outputs = {}
-        if self.opt.num_pose_frames == 2:
+        if self.num_pose_frames == 2:
             # In this setting, we compute the pose to each source frame via a
             # separate forward pass through the pose network.
 
@@ -312,10 +510,18 @@ class Trainer:
 
                 outputs[("sample", frame_id, scale)] = pix_coords
 
-                outputs[("color", frame_id, scale)] = F.grid_sample(
-                    inputs[("color", frame_id, source_scale)],
-                    outputs[("sample", frame_id, scale)],
-                    padding_mode="border", align_corners=True)
+                if self.opt.amp:
+                    with torch.cuda.amp.autocast(enabled=False):
+                        outputs[("color", frame_id, scale)] = F.grid_sample(
+                            inputs[("color", frame_id, source_scale)],
+                            outputs[("sample", frame_id, scale)],
+                            padding_mode="border", align_corners=True)
+                        # inputs[("color", frame_id, source_scale)],
+                else:
+                    outputs[("color", frame_id, scale)] = F.grid_sample(
+                        inputs[("color", frame_id, source_scale)],
+                        outputs[("sample", frame_id, scale)],
+                        padding_mode="border", align_corners=True)
 
                 if not self.opt.disable_automasking:
                     outputs[("color_identity", frame_id, scale)] = \
@@ -422,7 +628,7 @@ class Trainer:
             total_loss += loss
             losses["loss/{}".format(scale)] = loss
 
-        total_loss /= self.opt.num_scales
+        total_loss /= self.num_scales
         losses["loss"] = total_loss
         return losses
 
@@ -462,7 +668,7 @@ class Trainer:
         samples_per_sec = self.opt.batch_size / duration
         time_sofar = time.time() - self.start_time
         training_time_left = (
-            self.opt.num_total_steps / self.step - 1.0) * time_sofar if self.step > 0 else 0
+            self.num_total_steps / self.step - 1.0) * time_sofar if self.step > 0 else 0
         print_string = "epoch {:>3} | batch {:>6} | examples/s: {:5.1f}" + \
             " | loss: {:.5f} | time elapsed: {} | time left: {}"
         print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss,
