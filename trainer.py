@@ -233,6 +233,8 @@ class Trainer:
         if self.opt.distributed:
             self.opt.batch_size = int(self.opt.batch_size / self.opt.world_size)
             self.opt.num_workers = int(self.opt.num_workers / self.opt.world_size)
+            
+        img_ext = '.png' if self.opt.png else '.jpg'
 
         # data
         datasets_dict = {"kitti": datasets.KITTIRAWDataset,
@@ -274,21 +276,17 @@ class Trainer:
         num_train_samples = len(all_train_dataset)
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
 
-        train_dataset = self.dataset(
-            self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, self.num_scales, is_train=True, img_ext=img_ext)
         if self.opt.distributed:
             train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
         else:
             train_sampler = None
+        
         self.train_loader = DataLoader(
-            train_dataset, self.opt.batch_size, shuffle=(train_sampler is None),
+            all_train_dataset,  self.opt.batch_size, shuffle=(train_sampler is None),
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True, sampler=train_sampler)
-        val_dataset = self.dataset(
-            self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, self.num_scales, is_train=False, img_ext=img_ext)
+        
         self.val_loader = DataLoader(
-            val_dataset, self.opt.batch_size, shuffle=(train_sampler is None),
+            all_val_dataset, self.opt.batch_size, shuffle=(train_sampler is None),
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         self.val_iter = iter(self.val_loader)
 
@@ -296,9 +294,8 @@ class Trainer:
         for mode in ["train", "val"]:
             self.writers[mode] = SummaryWriter(os.path.join(self.log_path, mode))
 
-        if not self.opt.no_ssim:
-            self.ssim = SSIM()
-            self.ssim.to(self.device)
+        self.ssim = SSIM()
+        self.ssim.to(self.device)
 
         self.backproject_depth = {}
         self.project_3d = {}

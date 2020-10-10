@@ -46,7 +46,8 @@ class MonoDataset(data.Dataset):
                  frame_idxs,
                  num_scales,
                  is_train=False,
-                 img_ext='.jpg'):
+                 img_ext='.jpg',
+                 mode='train'):
         super(MonoDataset, self).__init__()
 
         self.data_path = data_path
@@ -60,6 +61,8 @@ class MonoDataset(data.Dataset):
 
         self.is_train = is_train
         self.img_ext = img_ext
+        
+        self.mode = mode
 
         self.loader = pil_loader
         self.to_tensor = transforms.ToTensor()
@@ -156,9 +159,9 @@ class MonoDataset(data.Dataset):
         for i in self.frame_idxs:
             if i == "s":
                 other_side = {"r": "l", "l": "r"}[side]
-                inputs[("color", i, -1)] = self.get_color(folder, frame_index, other_side, do_flip)
+                inputs[("color", i, -1)] = self.get_color(folder, frame_index, other_side, do_flip, self.mode)
             else:
-                inputs[("color", i, -1)] = self.get_color(folder, frame_index + i, side, do_flip)
+                inputs[("color", i, -1)] = self.get_color(folder, frame_index + i, side, do_flip, self.mode)
 
         # adjusting intrinsics to match each scale in the pyramid
         for scale in range(self.num_scales):
