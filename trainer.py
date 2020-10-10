@@ -314,7 +314,7 @@ class Trainer:
 
         print("Using split:\n  ", self.opt.split)
         print("There are {:d} training items and {:d} validation items\n".format(
-            len(train_dataset), len(val_dataset)))
+            len(all_train_dataset), len(all_val_dataset)))
 
         self.save_opts()
 
