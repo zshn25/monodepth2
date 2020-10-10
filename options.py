@@ -15,12 +15,26 @@ file_dir = os.path.dirname(__file__)  # the directory that options.py resides in
 class MonodepthOptions:
     def __init__(self):
         self.parser = argparse.ArgumentParser(description="Monodepthv2 options")
+        
+        # Dataset choices
+        self.parser.add_argument("--choices", nargs="+", type=int, 
+                    help="selected datasets for custom split file - \
+                        datasets: {0: KITTI, 1: Cityscapes, 2: Yamaha dataset}", 
+                    default=[0])
 
         # PATHS
         self.parser.add_argument("--data_path",
                                  type=str,
                                  help="path to the training data",
                                  default=os.path.join(file_dir, "kitti_data"))
+        self.parser.add_argument("--cityscapes_data_path", 
+                                 type=str,
+                                 help="path to the cityscapes training data",
+                                 default=os.path.join(file_dir, "cityscapes_data"))
+        self.parser.add_argument("--yamaha_data_path", 
+                                 type=str,
+                                 help="path to the Yamaha training data",
+                                 default=os.path.join(file_dir, "yamaha_data"))
         self.parser.add_argument("--log_dir",
                                  type=str,
                                  help="log directory",
@@ -141,6 +155,9 @@ class MonodepthOptions:
                                  help="normal or shared",
                                  default="separate_resnet",
                                  choices=["posecnn", "separate_resnet", "shared"])
+        self.parser.add_argument("--train_intrinsics",
+                                 help="train intrinsics when using a separate resnet",
+                                 action="store_true")
 
         # SYSTEM options
         self.parser.add_argument("--num_workers",
