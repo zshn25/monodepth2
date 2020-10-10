@@ -92,6 +92,8 @@ class Trainer:
             self.opt.frame_ids.append("s")
 
         if self.opt.depth_model_arch == "pydnet":
+            assert not self.opt.train_intrinsics,\
+                "Intrinsics network not compatible with Pydnet"
             self.models["fastdepth"] = Pyddepth(self.opt.scales, True, False)
             self.models["fastdepth"].to(self.device)
             if self.opt.distributed:
@@ -101,6 +103,8 @@ class Trainer:
                                                find_unused_parameters=True) ## Multiple GPU
             self.parameters_to_train += list(self.models["fastdepth"].parameters())
         elif self.opt.depth_model_arch == "fastdepth":
+            assert not self.opt.train_intrinsics,\
+                "Intrinsics network not compatible with Fastdepth"
             self.models["fastdepth"] = fastdepth.MobileNetSkipAddMultiScale(False,
                             pretrained_path = "", scales = self.opt.scales)
 
@@ -170,6 +174,8 @@ class Trainer:
                     self.models["encoder"].num_ch_enc, self.num_pose_frames)
 
             elif self.opt.pose_model_type == "posecnn":
+                assert not self.opt.train_intrinsics,\
+                "Intrinsics network not compatible with PoseCNN"
                 self.models["pose"] = networks.PoseCNN(
                     self.num_input_frames if self.opt.pose_model_input == "all" else 2)
 
@@ -180,6 +186,19 @@ class Trainer:
                                                broadcast_buffers=False, 
                                                find_unused_parameters=True) ## Multiple GPU
             self.parameters_to_train += list(self.models["pose"].parameters())
+            
+            if self.opt.train_intrinsics:
+                self.resize_len = torch.tensor([[self.opt.width, self.opt.height]],device=self.device)
+                self.models["intrinsics"] = networks.IntrinsicsNetwork(
+                    self.models["encoder"].num_ch_enc,
+                    self.resize_len)
+                self.models["intrinsics"].to(self.device)
+                if self.opt.distributed:
+                    self.models["intrinsics"] = DDP(self.models["intrinsics"],
+                                                    device_ids=[self.opt.rank], 
+                                                    broadcast_buffers=False, 
+                                                    find_unused_parameters=True) 
+                self.parameters_to_train += list(self.models["intrinsics"].parameters())
 
         if self.opt.predictive_mask:
             assert self.opt.disable_automasking, \
@@ -312,7 +331,7 @@ class Trainer:
     def run_epoch(self):
         """Run a single epoch of training and validation
         """
-        self.model_optimizer.step()
+        #self.model_optimizer.step()
         self.model_lr_scheduler.step()
 
         print("Training")
