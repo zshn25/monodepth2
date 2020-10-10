@@ -36,6 +36,8 @@ from IPython import embed
 
 from networks.fastdepth import models as fastdepth
 from networks.pydnet.pydnet import Pyddepth
+
+from collections import OrderedDict
 #import sys
 #sys.path.append("../fastdepth") # Since cannot import from paths with '-'
 #import models as fastdepth
@@ -234,16 +236,42 @@ class Trainer:
 
         # data
         datasets_dict = {"kitti": datasets.KITTIRAWDataset,
-                         "kitti_odom": datasets.KITTIOdomDataset}
-        self.dataset = datasets_dict[self.opt.dataset]
+                         "cityscapes": datasets.CityscapesDataset,
+                         "yamaha": datasets.YamahaDataset}
+        
+        choices = OrderedDict([(0, "kitti"), (1, "cityscapes"), (2, "yamaha")])
+        data_paths = {"kitti": self.opt.data_path,
+                      "cityscapes": self.opt.cityscapes_data_path,
+                      "yamaha": self.opt.yamaha_data_path}
+        
+        all_train_dataset = []
+        all_val_dataset = []
+        for choice in self.opt.choices:
+            name = choices[choice]
+            setattr(self, name, choice)
+            if choice == 0:
+                spath = os.path.join("splits", "{}_split", self.opt.split)
+            else:
+                spath = os.path.join("splits", "{}_split")
+            
+            fpath = os.path.join(os.path.dirname(__file__), spath, "{}_files.txt")
+            train_filenames = readlines(fpath.format(name, "train"))
+            val_filenames = readlines(fpath.format(name, "val"))
+            
+            dataset = datasets_dict[name]
+            
+            train_dataset = dataset(
+            data_paths[name], train_filenames, self.opt.height, self.opt.width,
+            self.opt.frame_ids, 4, is_train=True, img_ext=img_ext, mode="train")
+            all_train_dataset = torch.utils.data.ConcatDataset([all_train_dataset, train_dataset])
+                        
+            val_dataset = dataset(
+            data_paths[name], val_filenames, self.opt.height, self.opt.width,
+            self.opt.frame_ids, 4, is_train=True, img_ext=img_ext, mode="val")
+            all_val_dataset = torch.utils.data.ConcatDataset([all_val_dataset, val_dataset])
+        
 
-        fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
-
-        train_filenames = readlines(fpath.format("train"))
-        val_filenames = readlines(fpath.format("val"))
-        img_ext = '.png' if self.opt.png else '.jpg'
-
-        num_train_samples = len(train_filenames)
+        num_train_samples = len(all_train_dataset)
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
 
         train_dataset = self.dataset(
@@ -331,7 +359,7 @@ class Trainer:
     def run_epoch(self):
         """Run a single epoch of training and validation
         """
-        #self.model_optimizer.step()
+        self.model_optimizer.step()
         self.model_lr_scheduler.step()
 
         print("Training")
