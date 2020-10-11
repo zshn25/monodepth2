@@ -74,7 +74,7 @@ def evaluate(opt):
 
         print("-> Loading weights from {}".format(opt.load_weights_folder))
 
-        filenames = readlines(os.path.join(splits_dir, opt.eval_split, "test_files.txt"))
+        filenames = readlines(os.path.join(splits_dir, "kitti_split", opt.eval_split, "test_files.txt"))
         encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
         decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
 
@@ -131,7 +131,7 @@ def evaluate(opt):
 
         if opt.eval_eigen_to_benchmark:
             eigen_to_benchmark_ids = np.load(
-                os.path.join(splits_dir, "benchmark", "eigen_to_benchmark_ids.npy"))
+                os.path.join(splits_dir, "kitti_split", "benchmark", "eigen_to_benchmark_ids.npy"))
 
             pred_disps = pred_disps[eigen_to_benchmark_ids]
 
@@ -162,8 +162,8 @@ def evaluate(opt):
         print("-> No ground truth is available for the KITTI benchmark, so not evaluating. Done.")
         quit()
 
-    gt_path = os.path.join(splits_dir, opt.eval_split, "gt_depths.npz")
-    gt_depths = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
+    gt_path = os.path.join(splits_dir, "kitti_split", opt.eval_split, "gt_depths.npz")
+    gt_depths = np.load(gt_path, fix_imports=True, encoding='latin1', allow_pickle=True)["data"]
 
     print("-> Evaluating")
 
