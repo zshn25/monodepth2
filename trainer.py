@@ -122,9 +122,10 @@ class Trainer:
                                                broadcast_buffers=False, 
                                                find_unused_parameters=True) ## Multiple GPU
             self.parameters_to_train += list(self.models["encoder"].parameters())
-
+            
+            num_ch_enc = self.models["encoder"].module.num_ch_enc if self.opt.distributed else self.models["encoder"].num_ch_enc
             self.models["depth"] = networks.DepthDecoder(
-                self.models["encoder"].num_ch_enc, self.opt.scales)
+                                            num_ch_enc, self.opt.scales)
             self.models["depth"].to(self.device)
             if self.opt.distributed:
                 self.models["depth"] = DDP(self.models["depth"],
@@ -167,7 +168,7 @@ class Trainer:
                     self.parameters_to_train += list(self.models["encoder"].parameters())
 
                 self.models["pose"] = networks.PoseDecoder(
-                    self.models["encoder"].num_ch_enc, self.num_pose_frames)
+                                        num_ch_enc, self.num_pose_frames)
 
             elif self.opt.pose_model_type == "posecnn":
                 self.models["pose"] = networks.PoseCNN(
@@ -188,7 +189,7 @@ class Trainer:
             # Our implementation of the predictive masking baseline has the the same architecture
             # as our depth decoder. We predict a separate mask for each source frame.
             self.models["predictive_mask"] = networks.DepthDecoder(
-                self.models["encoder"].num_ch_enc, self.opt.scales,
+                                                num_ch_enc, self.opt.scales,
                 num_output_channels=(len(self.opt.frame_ids) - 1))
             self.models["predictive_mask"].to(self.device)
             if self.opt.distributed:
