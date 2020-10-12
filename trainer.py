@@ -94,8 +94,6 @@ class Trainer:
             self.opt.frame_ids.append("s")
 
         if self.opt.depth_model_arch == "pydnet":
-            assert not self.opt.train_intrinsics,\
-                "Intrinsics network not compatible with Pydnet"
             self.models["fastdepth"] = Pyddepth(self.opt.scales, True, False)
             self.models["fastdepth"].to(self.device)
             if self.opt.distributed:
@@ -105,8 +103,6 @@ class Trainer:
                                                find_unused_parameters=True) ## Multiple GPU
             self.parameters_to_train += list(self.models["fastdepth"].parameters())
         elif self.opt.depth_model_arch == "fastdepth":
-            assert not self.opt.train_intrinsics,\
-                "Intrinsics network not compatible with Fastdepth"
             self.models["fastdepth"] = fastdepth.MobileNetSkipAddMultiScale(False,
                             pretrained_path = "", scales = self.opt.scales)
 
@@ -129,8 +125,10 @@ class Trainer:
                                                find_unused_parameters=True) ## Multiple GPU
             self.parameters_to_train += list(self.models["encoder"].parameters())
 
+            depth_num_ch_enc = self.models["encoder"].module.num_ch_enc if self.opt.distributed else self.models["encoder"].num_ch_enc
+            
             self.models["depth"] = networks.DepthDecoder(
-                self.models["encoder"].num_ch_enc, self.opt.scales)
+                depth_num_ch_enc, self.opt.scales)
             self.models["depth"].to(self.device)
             if self.opt.distributed:
                 self.models["depth"] = DDP(self.models["depth"],
@@ -145,9 +143,11 @@ class Trainer:
                     self.opt.num_layers,
                     self.opt.weights_init == "pretrained",
                     num_input_images=self.num_pose_frames)
+                
+                pose_num_ch_enc = self.models["pose_encoder"].module.num_ch_enc if self.opt.distributed else self.models["pose_encoder"].num_ch_enc
 
                 self.models["pose"] = networks.PoseDecoder(
-                    self.models["pose_encoder"].num_ch_enc,
+                    pose_num_ch_enc,
                     num_input_features=1,
                     num_frames_to_predict_for=2)
 
@@ -173,7 +173,7 @@ class Trainer:
                     self.parameters_to_train += list(self.models["encoder"].parameters())
 
                 self.models["pose"] = networks.PoseDecoder(
-                    self.models["encoder"].num_ch_enc, self.num_pose_frames)
+                    depth_num_ch_enc, self.num_pose_frames)
 
             elif self.opt.pose_model_type == "posecnn":
                 assert not self.opt.train_intrinsics,\
