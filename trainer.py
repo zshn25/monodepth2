@@ -143,11 +143,9 @@ class Trainer:
                     self.opt.num_layers,
                     self.opt.weights_init == "pretrained",
                     num_input_images=self.num_pose_frames)
-                
-                pose_num_ch_enc = self.models["pose_encoder"].module.num_ch_enc if self.opt.distributed else self.models["pose_encoder"].num_ch_enc
 
                 self.models["pose"] = networks.PoseDecoder(
-                    pose_num_ch_enc,
+                    self.models["pose_encoder"].num_ch_enc,
                     num_input_features=1,
                     num_frames_to_predict_for=2)
 
@@ -209,7 +207,7 @@ class Trainer:
             # Our implementation of the predictive masking baseline has the the same architecture
             # as our depth decoder. We predict a separate mask for each source frame.
             self.models["predictive_mask"] = networks.DepthDecoder(
-                self.models["encoder"].num_ch_enc, self.opt.scales,
+                depth_num_ch_enc, self.opt.scales,
                 num_output_channels=(len(self.opt.frame_ids) - 1))
             self.models["predictive_mask"].to(self.device)
             if self.opt.distributed:
