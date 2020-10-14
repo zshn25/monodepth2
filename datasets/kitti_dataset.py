@@ -96,7 +96,6 @@ class KITTIOdomDataset(KITTIDataset):
             f_str)
         return image_path
 
-        image_path = os.path.join(
 class KITTIDepthDataset(KITTIDataset):
     """KITTI dataset which uses the updated ground truth depth maps.
     Assumes the [gt depths dataset](http://www.cvlibs.net/datasets/kitti/eval_depth.php?benchmark=depth_prediction) to be in the Kitti folder.
