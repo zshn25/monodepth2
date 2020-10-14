@@ -1,1 +1,0 @@
-python3 train.py --png --data_path ../datasets/png_kitti_data --cityscapes_data_path ../datasets/cityscapes_data --yamaha_data_path ../datasets/yamaha_dataset --amp --gpu 0 1 2 3

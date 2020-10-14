@@ -19,8 +19,8 @@ class MonodepthOptions:
         # Dataset choices
         self.parser.add_argument("--choices", nargs="+", type=int, 
                     help="selected datasets for custom split file - \
-                        datasets: {0: KITTI, 1: Cityscapes, 2: Yamaha dataset}", 
-                    default=[0])
+                        datasets: {0: KITTI, 1: Cityscapes, 2: Yamaha dataset, 3: E2R dataset}", 
+                    default=[3])
 
         # PATHS
         self.parser.add_argument("--data_path",
@@ -35,6 +35,10 @@ class MonodepthOptions:
                                  type=str,
                                  help="path to the Yamaha training data",
                                  default=os.path.join(file_dir, "yamaha_data"))
+        self.parser.add_argument("--e2r_data_path", 
+                                 type=str,
+                                 help="path to the Yamaha training data",
+                                 default=os.path.join(file_dir, "e2r_dataset"))
         self.parser.add_argument("--log_dir",
                                  type=str,
                                  help="log directory",
