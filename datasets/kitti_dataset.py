@@ -96,59 +96,7 @@ class KITTIOdomDataset(KITTIDataset):
             f_str)
         return image_path
 
-
-class KITTIDepthDataset(KITTIDataset):
-    """KITTI dataset which uses the updated ground truth depth maps.
-    Assumes the [gt depths dataset](http://www.cvlibs.net/datasets/kitti/eval_depth.php?benchmark=depth_prediction) to be in the Kitti folder:
-    After downloading the dataset, combine the train and val folder into gtdepths folder and place it in the kitti-raw folder
-    
-    Not all KITTI images have gtdepths. If not available, we load the velodyne data. 
-    """
-    def __init__(self, *args, **kwargs):
-        super(KITTIDepthDataset, self).__init__(*args, **kwargs)
-
-    def get_image_path(self, folder, frame_index, side):
-        f_str = "{:010d}{}".format(frame_index, self.img_ext)
         image_path = os.path.join(
-            self.data_path,
-            folder,
-            "image_0{}/data".format(self.side_map[side]),
-            f_str)
-        return image_path
-
-    def get_depth(self, folder, frame_index, side, do_flip):
-        subfolder=os.path.split(folder)[1]
-        f_str = "{:010d}.png".format(frame_index)
-        depth_path = os.path.join(
-            self.data_path,
-            'gtdepths',
-            subfolder,
-            "proj_depth/groundtruth/image_0{}".format(self.side_map[side]),
-            f_str)
-
-        try:
-            depth_gt = pil.open(depth_path)
-            depth_gt = depth_gt.resize(self.full_res_shape, pil.NEAREST)
-            depth_gt = np.array(depth_gt).astype(np.float32) / 256
-        except FileNotFoundError: # since not all gt data is available
-            calib_path = os.path.join(self.data_path, folder.split("/")[0])
-
-            velo_filename = os.path.join(
-                self.data_path,
-                folder,
-                "velodyne_points/data/{:010d}.bin".format(int(frame_index)))
-
-            depth_gt = generate_depth_map(calib_path, velo_filename, self.side_map[side])
-
-        depth_gt = skimage.transform.resize(
-            depth_gt, (self.height, self.width), order=0, preserve_range=True, mode='constant')
-
-        if do_flip:
-            depth_gt = np.fliplr(depth_gt)
-
-        return depth_gt
-
-    
 class KITTIDepthDataset(KITTIDataset):
     """KITTI dataset which uses the updated ground truth depth maps.
     Assumes the [gt depths dataset](http://www.cvlibs.net/datasets/kitti/eval_depth.php?benchmark=depth_prediction) to be in the Kitti folder.

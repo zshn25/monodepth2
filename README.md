@@ -2,9 +2,13 @@
 
 This is an unofficial fork of [monodepth2](https://github.com/nianticlabs/monodepth2) repo. The folloing is the incomplete list of changes done
 
+* Options
+  - By default trains on CPU. If GPU is expected, give `--gpu 0 2` for example for training on GPU 0 and 2.
+
 * Dataset changes
-  - [x] Load other datasets such as Cityscapes
-  - [x] Load KITTI Depth instead of Velodyne if available
+  - [x] Load other datasets such as Cityscapes.
+  - [x] Load KITTI Depth instead of Velodyne if available.
+  - [x] Loads ground truth depth at the same resolution as the input and can be changed using `--height` and `--width` options.
   - [x] Densify sparse depth using [Sparse Depth Completion](https://github.com/wvangansbeke/Sparse-Depth-Completion)
   -
 
@@ -21,17 +25,22 @@ This is an unofficial fork of [monodepth2](https://github.com/nianticlabs/monode
     - [ ] 
     
 * Misc changes
+  - [x] In evaluation, we resize the ground-truth to same size as input instead of resizing input (and prediction) to native ground-truth's resolution. (This is to be consistent with the segmentation evaluations)
   - [x] Training support on multi-gpu using [DDP](https://pytorch.org/docs/stable/generated/torch.nn.parallel.DistributedDataParallel.html)
   - [x] Pytorch model conversion into [ONNX](https://onnx.ai/) -> TensorFlow -> Tensorflow Lite.
   - [x] ~Automatic Mixed Precision~ -> Does not work. gives static depth as output
   - [x] ~L2 regularization within the optimizer~ -> Does not work. gives static depth as output
   - [x] ~Network Pruning for fast inference~ -> Works! Makes weights to zero but does not use them as a sparse data structure
 
-Licence: Same as [licence for monodepth2](https://github.com/nianticlabs/monodepth2)
+## ⚙️ Setup
 
+- Clone this repo and run `git submodule update --init --recursive` to get the submodules
+
+Licence: Same as [licence for monodepth2](https://github.com/nianticlabs/monodepth2/blob/master/LICENSE)
+
+Doc from parent:
 ___
 
-Doc from parent
 
 > **Digging into Self-Supervised Monocular Depth Prediction**
 >
