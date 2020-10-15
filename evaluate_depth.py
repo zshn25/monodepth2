@@ -90,8 +90,9 @@ def evaluate(opt):
         depth_decoder = networks.DepthDecoder(encoder.num_ch_enc)
 
         model_dict = encoder.state_dict()
-        encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
-        depth_decoder.load_state_dict(torch.load(decoder_path))
+        encoder.load_state_dict({k.replace("module.",""): v for k, v in encoder_dict.items() if k.replace("module.","") in model_dict})
+        decoder_dict = torch.load(decoder_path)
+        depth_decoder.load_state_dict({k.replace("module.",""): v for k, v in decoder_dict.items()})
 
         encoder.cuda()
         encoder.eval()
