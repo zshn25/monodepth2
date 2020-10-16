@@ -188,9 +188,11 @@ class Trainer:
             self.parameters_to_train += list(self.models["pose"].parameters())
             
             if self.opt.train_intrinsics:
+                print("Using intrinsics network for training")
+                pose_num_ch_enc = self.models["pose_encoder"].module.num_ch_enc if self.opt.distributed else self.models["pose_encoder"].num_ch_enc
                 self.resize_len = torch.tensor([[self.opt.width, self.opt.height]],device=self.device)
                 self.models["intrinsics"] = networks.IntrinsicsNetwork(
-                    self.models["encoder"].num_ch_enc,
+                    pose_num_ch_enc,
                     self.resize_len)
                 self.models["intrinsics"].to(self.device)
                 if self.opt.distributed:
@@ -556,7 +558,6 @@ class Trainer:
                     intr_mat_K = outputs[("intr_mat_K", 0, frame_id)]
                     intr_mat_inv_K = outputs[("intr_mat_inv_K", 0, frame_id)]  
                     
-                    #print(intr_mat_K, "eee")
                     cam_points = self.backproject_depth[source_scale](
                         depth, intr_mat_inv_K)
                     pix_coords = self.project_3d[source_scale](
@@ -565,7 +566,6 @@ class Trainer:
                 else:
                     cam_points = self.backproject_depth[source_scale](
                         depth, inputs[("inv_K", source_scale)])
-                    #print(inputs[("K", source_scale)], "aaa")
                     pix_coords = self.project_3d[source_scale](
                         cam_points, inputs[("K", source_scale)], T)   
 
