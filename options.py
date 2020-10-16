@@ -20,11 +20,13 @@ class MonodepthOptions:
         self.parser.add_argument("--data_path",
                                  type=str,
                                  help="path to the training data",
-                                 default=os.path.join(file_dir, "kitti_data"))
+                                 default=os.path.join(file_dir, "cityscapes"))
+                                 #default=os.path.join(file_dir, "kitti_data"))
         self.parser.add_argument("--log_dir",
                                  type=str,
                                  help="log directory",
-                                 default=os.path.join(os.path.expanduser("~"), "tmp"))
+                                 default="./log_dir")
+                                 #default=os.path.join(os.path.expanduser("~"), "tmp"))
 
         # TRAINING options
         self.parser.add_argument("--model_name",
@@ -34,8 +36,8 @@ class MonodepthOptions:
         self.parser.add_argument("--split",
                                  type=str,
                                  help="which training split to use",
-                                 choices=["eigen_zhou", "eigen_full", "odom", "benchmark"],
-                                 default="eigen_zhou")
+                                 choices=["eigen_zhou", "eigen_full", "odom", "benchmark", "cityscapes"],
+                                 default="cityscapes")
         self.parser.add_argument("--num_layers",
                                  type=int,
                                  help="number of resnet layers",
@@ -44,8 +46,16 @@ class MonodepthOptions:
         self.parser.add_argument("--dataset",
                                  type=str,
                                  help="dataset to train on",
-                                 default="kitti",
-                                 choices=["kitti", "kitti_odom", "kitti_depth", "kitti_test"])
+                                 default="cityscapes",
+                                 choices=["kitti", "kitti_odom", "kitti_depth", "kitti_test", "cityscapes"])
+        self.parser.add_argument("--num_classes",
+                                 type=str,
+                                 help="Number of semantic segmentation classes",
+                                 default=20)
+        self.parser.add_argument("--max_instances",
+                                 type=str,
+                                 help="Maximum number of instances to segment per class",
+                                 default=64)
         self.parser.add_argument("--png",
                                  help="if set, trains from raw KITTI png files (instead of jpgs)",
                                  action="store_true")
@@ -87,12 +97,16 @@ class MonodepthOptions:
                                  help="Depth model architecture",
                                  choices=["resnet", "fastdepth", "pydnet"],
                                  default="resnet")
+        self.parser.add_argument("--use_segmentation",
+                                 help="if set, uses image segmentation training",
+                                 action="store_true",
+                                 default=True)
 
         # OPTIMIZATION options
         self.parser.add_argument("--batch_size",
                                  type=int,
                                  help="batch size",
-                                 default=12)
+                                 default=1)
         self.parser.add_argument("--learning_rate",
                                  type=float,
                                  help="learning rate",
@@ -100,7 +114,7 @@ class MonodepthOptions:
         self.parser.add_argument("--num_epochs",
                                  type=int,
                                  help="number of epochs",
-                                 default=20)
+                                 default=200)
         self.parser.add_argument("--scheduler_step_size",
                                  type=int,
                                  help="step size of the scheduler",
@@ -146,11 +160,11 @@ class MonodepthOptions:
         self.parser.add_argument("--num_workers",
                                  type=int,
                                  help="number of dataloader workers",
-                                 default=12)
+                                 default=4)
         self.parser.add_argument("--gpu",
                                  nargs="+",
                                  type=int,
-                                 default=None, # no cuda by default
+                                 default=[0], # no cuda by default
                                  help="Available gpus")
         self.parser.add_argument("--amp",
                                  help="Automatic mixed precision. Requires Pytorch > 1.6",
@@ -162,12 +176,13 @@ class MonodepthOptions:
         # LOADING options
         self.parser.add_argument("--load_weights_folder",
                                  type=str,
-                                 help="name of model to load")
+                                 help="name of model to load",
+                                 default = "weights")
         self.parser.add_argument("--models_to_load",
                                  nargs="+",
                                  type=str,
                                  help="models to load",
-                                 default=["encoder", "depth", "pose_encoder", "pose"])
+                                 default=["encoder", "depth", "pose_encoder", "pose", "mask"])
 
         # LOGGING options
         self.parser.add_argument("--log_frequency",

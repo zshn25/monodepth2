@@ -46,7 +46,10 @@ class MonoDataset(data.Dataset):
                  frame_idxs,
                  num_scales,
                  is_train=False,
-                 img_ext='.jpg'):
+                 img_ext='.jpg',
+                 use_segmentation = False,
+                 num_classes = 20,
+                 max_instances = 32):
         super(MonoDataset, self).__init__()
 
         self.data_path = data_path
@@ -58,7 +61,16 @@ class MonoDataset(data.Dataset):
 
         self.frame_idxs = frame_idxs
 
+        self.use_segmentation = use_segmentation
+        
+        self.num_classes = num_classes
+        self.max_instances = max_instances
+
         self.is_train = is_train
+        if not self.is_train:
+            self.mode = 'val'
+        else:
+            self.mode = 'train'
         self.img_ext = img_ext
 
         self.loader = pil_loader
@@ -196,6 +208,13 @@ class MonoDataset(data.Dataset):
             stereo_T[0, 3] = side_sign * baseline_sign * 0.1
 
             inputs["stereo_T"] = torch.from_numpy(stereo_T)
+            
+        if self.use_segmentation:
+            inputs[("seg_mask", 0)], inputs[("ins_mask", 0)], inputs["n_objects"] = self.get_masks(folder, frame_index, side, do_flip, self.mode, rsize = (self.width, self.height))
+
+            if inputs["n_objects"] == 1:
+                return self.__getitem__((index + 1) % len(self.filenames))
+        return inputs
 
         return inputs
 

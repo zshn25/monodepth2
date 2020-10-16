@@ -26,16 +26,19 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 import json
 
-from utils import *
-from datasets.kitti_utils import *
-from networks.layers import *
-
 import datasets
 import networks
+
+from utils import *
+from networks.layers import *
+from datasets.kitti_utils import *
+from discriminative import DiscriminativeLoss
+
 from IPython import embed
 
-from networks.fastdepth import models as fastdepth
-from networks.pydnet.pydnet import Pyddepth
+# from networks.fastdepth import models as fastdepth
+# from networks.pydnet.pydnet import Pyddepth
+
 #import sys
 #sys.path.append("../fastdepth") # Since cannot import from paths with '-'
 #import models as fastdepth
@@ -52,6 +55,10 @@ class Trainer:
     def __init__(self, rank, options):
         self.opt = options
         self.opt.rank = rank
+
+        self.use_segmentation = self.opt.use_segmentation
+        self.max_instances = self.opt.max_instances # Change also in data-generator
+        self.num_classes = self.opt.num_classes
 
         # DDP setup
         if self.opt.distributed:
@@ -198,10 +205,22 @@ class Trainer:
                                                broadcast_buffers=False, 
                                                find_unused_parameters=True) ## Multiple GPU
             self.parameters_to_train += list(self.models["predictive_mask"].parameters())
+            
+        if self.use_segmentation:
+            self.models["mask"] = networks.MaskDecoder(self.models["encoder"].num_ch_enc, self.opt.scales, num_output_channels=self.num_classes, n_objects = self.max_instances)
+        
+            self.models["mask"].to(self.device)
+            if self.opt.distributed:
+                self.models["mask"] = DDP(self.models["mask"],
+                                               device_ids=[self.opt.rank], 
+                                               broadcast_buffers=False, 
+                                               find_unused_parameters=True) ## Multiple GPU
+            self.parameters_to_train += list(self.models["mask"].parameters())
         
         self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate, weight_decay=self.opt.weight_decay)
         self.model_lr_scheduler = optim.lr_scheduler.StepLR(
             self.model_optimizer, self.opt.scheduler_step_size, 0.1)
+
 
         if self.opt.load_weights_folder is not None:
             self.load_model()
@@ -216,10 +235,15 @@ class Trainer:
 
         # data
         datasets_dict = {"kitti": datasets.KITTIRAWDataset,
-                         "kitti_odom": datasets.KITTIOdomDataset}
+                         "kitti_odom": datasets.KITTIOdomDataset,
+                         "cityscapes": datasets.CityscapesDataset}
         self.dataset = datasets_dict[self.opt.dataset]
 
-        fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, "{}_files.txt")
+        if self.use_segmentation:
+            f_format = "{}_files_seg.txt"
+        else:
+            f_format = "{}_files.txt"
+        fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, f_format)
 
         train_filenames = readlines(fpath.format("train"))
         val_filenames = readlines(fpath.format("val"))
@@ -230,7 +254,7 @@ class Trainer:
 
         train_dataset = self.dataset(
             self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, self.num_scales, is_train=True, img_ext=img_ext)
+            self.opt.frame_ids, self.num_scales, is_train=True, img_ext=img_ext, use_segmentation = self.use_segmentation, num_classes = self.num_classes, max_instances = self.max_instances)
         if self.opt.distributed:
             train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
         else:
@@ -240,7 +264,7 @@ class Trainer:
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True, sampler=train_sampler)
         val_dataset = self.dataset(
             self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, self.num_scales, is_train=False, img_ext=img_ext)
+            self.opt.frame_ids, self.num_scales, is_train=False, img_ext=img_ext, use_segmentation = self.use_segmentation)
         self.val_loader = DataLoader(
             val_dataset, self.opt.batch_size, shuffle=(train_sampler is None),
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
@@ -275,6 +299,8 @@ class Trainer:
 
         self.save_opts()
 
+
+        self.criterion_discriminative = DiscriminativeLoss(delta_var = 0.5, delta_dist = 1.5, norm = 2, usegpu = True)
         self.train()
 
         if self.opt.distributed:
@@ -341,7 +367,11 @@ class Trainer:
             late_phase = self.step % 2000 == 0
 
             if early_phase or late_phase:
-                self.log_time(batch_idx, duration, losses["loss"].cpu().data)
+                losses_list = [losses["loss"].cpu().data]
+                if self.use_segmentation:
+                    losses_list.extend([losses["seg_loss"].cpu().data, losses["ins_loss"].cpu().data])
+
+                self.log_time(batch_idx, duration, losses_list)
 
                 if "depth_gt" in inputs:
                     self.compute_depth_losses(inputs, outputs, losses)
@@ -370,6 +400,7 @@ class Trainer:
                 features[k] = [f[i] for f in all_features]
 
             outputs = self.models["depth"](features[0])
+            outputs.update(self.models["mask"](features[0]))
         else:
             # Otherwise, we only feed the image with frame_id 0 through the depth encoder
             if self.opt.depth_model_arch in ["fastdepth", "pydnet"]:
@@ -377,6 +408,7 @@ class Trainer:
             else:
                 features = self.models["encoder"](inputs["color_aug", 0, 0])
                 outputs = self.models["depth"](features)
+                outputs.update(self.models["mask"](features))
 
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)
@@ -629,9 +661,31 @@ class Trainer:
             total_loss += loss
             losses["loss/{}".format(scale)] = loss
 
-        total_loss /= self.num_scales
+        total_loss /= self.num_scales        
+        
+        if self.use_segmentation:
+            seg_cce_loss = self.compute_cross_entropy(outputs[("seg_mask", 0)], inputs[("seg_mask", 0)])
+            ins_cce_loss = self.criterion_discriminative(outputs[("ins_mask", 0)], inputs[("ins_mask", 0)], inputs["n_objects"], self.max_instances)
+            losses["seg_loss"] = seg_cce_loss
+            losses["ins_loss"] = ins_cce_loss
+            total_loss += seg_cce_loss + ins_cce_loss
+        
+        losses["loss"] = total_loss
         losses["loss"] = total_loss
         return losses
+
+    def compute_cross_entropy(self, pred, target, weight = None, size_average = True):
+        n, c, h, w = pred.size()
+        nt, ht, wt = target.size()
+
+        if h != ht and w != wt:  
+            pred = F.interpolate(pred, size=(ht, wt), mode="bilinear", align_corners=True)
+
+        pred = pred.transpose(1, 2).transpose(2, 3).contiguous().view(-1, c)
+        target = target.view(-1)
+        loss = F.cross_entropy(pred, target, weight = weight, size_average = size_average, ignore_index=250)
+        
+        return loss
 
     def compute_depth_losses(self, inputs, outputs, losses):
         """Compute depth metrics, to allow monitoring during training
@@ -670,9 +724,14 @@ class Trainer:
         time_sofar = time.time() - self.start_time
         training_time_left = (
             self.num_total_steps / self.step - 1.0) * time_sofar if self.step > 0 else 0
-        print_string = "epoch {:>3} | batch {:>6} | examples/s: {:5.1f}" + \
-            " | loss: {:.5f} | time elapsed: {} | time left: {}"
-        print(print_string.format(self.epoch, batch_idx, samples_per_sec, loss,
+        
+        if self.use_segmentation:
+            print_string = "epoch {:>3} | batch {:>6} | examples/s: {:5.1f}" + \
+                " | loss total: {:.5f} seg:{:.5f} ins:{:.5f} | time elapsed: {} | time left: {}"
+        else:
+            print_string = "epoch {:>3} | batch {:>6} | examples/s: {:5.1f}" + \
+                " | loss: {:.5f} | time elapsed: {} | time left: {}"
+        print(print_string.format(self.epoch, batch_idx, samples_per_sec, *loss,
                                   sec_to_hm_str(time_sofar), sec_to_hm_str(training_time_left)))
 
     def log(self, mode, inputs, outputs, losses):

@@ -7,6 +7,7 @@
 from __future__ import absolute_import, division, print_function
 
 import os
+import cv2
 import sys
 import glob
 import argparse
@@ -15,6 +16,8 @@ import PIL.Image as pil
 import matplotlib as mpl
 import matplotlib.cm as cm
 
+from time import time
+
 import torch
 from torchvision import transforms, datasets
 
@@ -22,6 +25,126 @@ import networks
 from networks.layers import disp_to_depth
 from utils import download_model_if_doesnt_exist
 
+# Segmentation classes for cityscapes dataset
+class_names = [
+                        "unlabelled",
+                        "road",
+                        "sidewalk",
+                        "building",
+                        "wall",
+                        "fence",
+                        "pole",
+                        "traffic_light",
+                        "traffic_sign",
+                        "vegetation",
+                        "terrain",
+                        "sky",
+                        "person",
+                        "rider",
+                        "car",
+                        "truck",
+                        "bus",
+                        "train",
+                        "motorcycle",
+                        "bicycle"
+                  ]
+segment_classes = [7, 8, 11, 12, 13, 17, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 31, 32, 33]
+colors = [  #[  0,   0,   0],
+            [128, 64, 128],
+            [244, 35, 232],
+            [70, 70, 70],
+            [102, 102, 156],
+            [190, 153, 153],
+            [153, 153, 153],
+            [250, 170, 30],
+            [220, 220, 0],
+            [107, 142, 35],
+            [152, 251, 152],
+            [0, 130, 180],
+            [220, 20, 60],
+            [255, 0, 0],
+            [0, 0, 142],
+            [0, 0, 70],
+            [0, 60, 100],
+            [0, 80, 100],
+            [0, 0, 230],
+            [119, 11, 32]
+        ]
+label_colours = dict(zip(range(19), colors))
+
+def decode_mask(temp):
+    r = temp.copy()
+    g = temp.copy()
+    b = temp.copy()
+    for l in range(len(segment_classes)):
+        r[temp == l] = label_colours[l][0]
+        g[temp == l] = label_colours[l][1]
+        b[temp == l] = label_colours[l][2]
+
+    rgb = np.zeros((temp.shape[0], temp.shape[1], 3))
+    rgb[:, :, 0] = r / 255.0
+    rgb[:, :, 1] = g / 255.0
+    rgb[:, :, 2] = b / 255.0
+    return rgb
+
+def get_bboxes_seg(mask_outputs, im):
+    bboxes = []            
+    ins_mask_pred = np.squeeze(mask_outputs[("ins_mask", 0)].data.max(1)[1].cpu().numpy() + 1, 0)
+    seg_mask_pred = mask_outputs[("seg_mask", 0)].data.squeeze()
+    max_seg_mask_pred = seg_mask_pred.max(0)[0].unsqueeze(0)
+    
+    seg_mask_pred = (seg_mask_pred == max_seg_mask_pred).cpu().numpy().astype(int)
+    for idx in range(11, seg_mask_pred.shape[0]):
+        seg_mask = seg_mask_pred[idx] * ins_mask_pred
+        
+        print(np.unique(seg_mask), np.amin(seg_mask), np.amax(ins_mask_pred), np.amax(seg_mask_pred[idx]),  seg_mask.shape)
+        seg_mask = seg_mask.astype(np.uint8)
+        
+        contours, heirarchy = cv2.findContours(seg_mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.imshow("Show",seg_mask)
+        
+        for cnt in contours:
+            x, y, w, h = cv2.boundingRect(cnt)
+            
+            cv2.rectangle(im, (x, y), (x + w, y + h),(0,255,0),2)
+    cv2.imshow("Show",im)
+    cv2.waitKey(0)
+    return bboxes
+    
+def get_bboxes(mask_outputs, im, output_name, output_directory):
+    start = time()
+    im = cv2.cvtColor(im, cv2.COLOR_RGB2BGR) 
+    bboxes = []            
+    seg_mask_pred = np.squeeze(mask_outputs[("seg_mask", 0)].data.max(1)[1].cpu().numpy(), 0)
+    ins_mask_pred = mask_outputs[("ins_mask", 0)].data.squeeze()
+    max_ins_mask_pred, max_ins_mask_pred_idx = ins_mask_pred.max(0)
+    
+    # max_ins_mask_pred[max_ins_mask_pred_idx < class_names.index('person')] = -9999
+
+    seg_mask_pred[seg_mask_pred < class_names.index('sky')] = 0
+
+    ins_mask_pred = (ins_mask_pred == max_ins_mask_pred[None]).cpu().numpy().astype(int)
+    for idx in range(ins_mask_pred.shape[0]):
+        ins_mask = ins_mask_pred[idx] * seg_mask_pred
+        
+        ins_mask = ins_mask.astype(np.uint8)
+        # print(np.amax(ins_mask), np.amin(ins_mask), np.unique(ins_mask))
+
+        contours, heirarchy = cv2.findContours(ins_mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+
+        for cnt in contours:
+            x, y, w, h = cv2.boundingRect(cnt)
+            if w < 15 and h < 5:
+                continue
+            cv2.rectangle(im, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            bboxes.append([x, y, w, h])
+    # print(bboxes)
+    # print(time() - start)  
+              
+    # cv2.imshow("Show", im)
+    save_path = os.path.join(output_directory, "{}_ins_mask_bbox.jpeg".format(output_name))
+    cv2.imwrite(save_path, im)
+    return bboxes
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -32,7 +155,7 @@ def parse_args():
     parser.add_argument('--model_name', type=str,
                         help='name of a pretrained model to use',
                         choices=[
-                            "mono_640x192",
+                            "recent",
                             "stereo_640x192",
                             "mono+stereo_640x192",
                             "mono_no_pt_640x192",
@@ -61,11 +184,12 @@ def test_simple(args):
     else:
         device = torch.device("cpu")
 
-    download_model_if_doesnt_exist(args.model_name)
+    #download_model_if_doesnt_exist(args.model_name)
     model_path = os.path.join("models", args.model_name)
     print("-> Loading model from ", model_path)
     encoder_path = os.path.join(model_path, "encoder.pth")
     depth_decoder_path = os.path.join(model_path, "depth.pth")
+    mask_decoder_path = os.path.join(model_path, "mask.pth")
 
     # LOADING PRETRAINED MODEL
     print("   Loading pretrained encoder")
@@ -80,7 +204,7 @@ def test_simple(args):
     encoder.to(device)
     encoder.eval()
 
-    print("   Loading pretrained decoder")
+    print("   Loading pretrained depth decoder")
     depth_decoder = networks.DepthDecoder(
         num_ch_enc=encoder.num_ch_enc, scales=range(4))
 
@@ -89,6 +213,14 @@ def test_simple(args):
 
     depth_decoder.to(device)
     depth_decoder.eval()
+    
+    print("   Loading pretrained mask decoder")
+    mask_decoder = networks.MaskDecoder(num_ch_enc = encoder.num_ch_enc, scales = range(4), num_output_channels = len(class_names))
+    loaded_dict = torch.load(mask_decoder_path, map_location=device)
+    mask_decoder.load_state_dict(loaded_dict)
+
+    mask_decoder.to(device)
+    mask_decoder.eval()
 
     # FINDING INPUT IMAGES
     if os.path.isfile(args.image_path):
@@ -116,13 +248,23 @@ def test_simple(args):
             input_image = pil.open(image_path).convert('RGB')
             original_width, original_height = input_image.size
             input_image = input_image.resize((feed_width, feed_height), pil.LANCZOS)
+           
             input_image = transforms.ToTensor()(input_image).unsqueeze(0)
 
             # PREDICTION
             input_image = input_image.to(device)
-            features = encoder(input_image)
-            outputs = depth_decoder(features)
+            
+            for _ in range(3):
+                t1 = time()
+                features = encoder(input_image)
+                t2 = time()
+                outputs = depth_decoder(features)
+                t3 = time()
+                mask_outputs = mask_decoder(features)
+                t4 = time()
+                print('Encoder time: {:.4f} Depth Decoder time: {:.4f} Mask Decoder time: {:.4f}'.format(t2 - t1, t3 - t2, t4 - t3))
 
+            # Depth prediction
             disp = outputs[("disp", 0)]
             disp_resized = torch.nn.functional.interpolate(
                 disp, (original_height, original_width), mode="bilinear", align_corners=False)
@@ -143,6 +285,46 @@ def test_simple(args):
 
             name_dest_im = os.path.join(output_directory, "{}_disp.jpeg".format(output_name))
             im.save(name_dest_im)
+            
+            # Segmentation mask prediction
+            seg_mask_pred = mask_outputs[("seg_mask", 0)]
+            seg_mask_pred = np.squeeze(seg_mask_pred.data.max(1)[1].cpu().numpy(), axis = 0)
+
+            seg_mask = decode_mask(seg_mask_pred) * 255 #* ins_mask_pred[..., None]
+            seg_mask_im = pil.fromarray(seg_mask.astype(np.uint8))
+            name_dest_seg_mask = os.path.join(output_directory, "{}_seg_mask.jpeg".format(output_name))
+            seg_mask_im.save(name_dest_seg_mask)
+            
+                        
+            # Instance mask prediction
+            ins_mask_pred = mask_outputs[("ins_mask", 0)].data.max(1)[1].cpu().numpy()
+            ins_mask_pred = (ins_mask_pred + 1) * seg_mask_pred[None]
+            ins_mask_pred = np.squeeze(ins_mask_pred, axis = 0)
+            
+            # print(np.amax(seg_mask_pred), -np.amax(-seg_mask_pred))
+            # print(np.amax(ins_mask_pred), -np.amax(-ins_mask_pred))
+            
+            objects = np.unique(ins_mask_pred.flatten())
+            n_objects = len(objects) - 1 
+            
+            colors = [cm.Spectral(each) for each in np.linspace(0, 1, n_objects)]
+            ins_mask_pred_color = np.zeros((ins_mask_pred.shape[0], ins_mask_pred.shape[1], 3), dtype=np.uint8)
+            for i, obj in zip(range(n_objects), objects):
+                ins_mask_pred_color[ins_mask_pred == obj] = (np.array(colors[i][:3]) * 255).astype('int')
+                
+            #ins_mask_pred = 0.3 + 0.7 * (ins_mask_pred / np.amax(ins_mask_pred)) 
+            #ins_mask = ins_mask_pred * 255
+            ins_mask_pred_color = ins_mask_pred_color.astype(np.uint8)
+            for _ in range(3):
+                t5 = time()
+                get_bboxes(mask_outputs, ins_mask_pred_color, output_name, output_directory)
+                t6 = time()
+                print('Post processing time =  {:.4f}'.format(t6 - t5))
+            
+            ins_mask_im = pil.fromarray(ins_mask_pred_color)
+            name_dest_ins_mask = os.path.join(output_directory, "{}_ins_mask.jpeg".format(output_name))
+            ins_mask_im.save(name_dest_ins_mask)
+            
 
             print("   Processed {:d} of {:d} images - saved prediction to {}".format(
                 idx + 1, len(paths), name_dest_im))
