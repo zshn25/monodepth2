@@ -20,7 +20,7 @@ class MonodepthOptions:
         self.parser.add_argument("--choices", nargs="+", type=int, 
                     help="selected datasets for custom split file - \
                         datasets: {0: KITTI, 1: Cityscapes, 2: Yamaha dataset, 3: E2R dataset}", 
-                    default=[3])
+                    default=[0])
 
         # PATHS
         self.parser.add_argument("--data_path",
@@ -110,7 +110,7 @@ class MonodepthOptions:
         self.parser.add_argument("--batch_size",
                                  type=int,
                                  help="batch size",
-                                 default=12)
+                                 default=2)
         self.parser.add_argument("--learning_rate",
                                  type=float,
                                  help="learning rate",

@@ -462,6 +462,11 @@ class Trainer:
                     axisangle, translation = self.models["pose"](pose_inputs)
                     outputs[("axisangle", 0, f_i)] = axisangle
                     outputs[("translation", 0, f_i)] = translation
+                    
+                    if self.opt.train_intrinsics:
+                        intr_mat_K, intr_mat_inv_K = self.models["intrinsics"](pose_inputs)
+                        outputs[("intr_mat_K", 0, f_i)] = intr_mat_K
+                        outputs[("intr_mat_inv_K", 0, f_i)] = intr_mat_inv_K
 
                     # Invert the matrix if the frame id is negative
                     outputs[("cam_T_cam", 0, f_i)] = transformation_from_parameters(
@@ -547,10 +552,22 @@ class Trainer:
                     T = transformation_from_parameters(
                         axisangle[:, 0], translation[:, 0] * mean_inv_depth[:, 0], frame_id < 0)
 
-                cam_points = self.backproject_depth[source_scale](
-                    depth, inputs[("inv_K", source_scale)])
-                pix_coords = self.project_3d[source_scale](
-                    cam_points, inputs[("K", source_scale)], T)
+                if self.opt.train_intrinsics:
+                    intr_mat_K = outputs[("intr_mat_K", 0, frame_id)]
+                    intr_mat_inv_K = outputs[("intr_mat_inv_K", 0, frame_id)]  
+                    
+                    #print(intr_mat_K, "eee")
+                    cam_points = self.backproject_depth[source_scale](
+                        depth, intr_mat_inv_K)
+                    pix_coords = self.project_3d[source_scale](
+                        cam_points, intr_mat_K, T)
+                    
+                else:
+                    cam_points = self.backproject_depth[source_scale](
+                        depth, inputs[("inv_K", source_scale)])
+                    #print(inputs[("K", source_scale)], "aaa")
+                    pix_coords = self.project_3d[source_scale](
+                        cam_points, inputs[("K", source_scale)], T)   
 
                 outputs[("sample", frame_id, scale)] = pix_coords
 
