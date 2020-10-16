@@ -20,7 +20,7 @@ class MonodepthOptions:
         self.parser.add_argument("--choices", nargs="+", type=int, 
                     help="selected datasets for custom split file - \
                         datasets: {0: KITTI, 1: Cityscapes, 2: Yamaha dataset}", 
-                    default=[0])
+                    default=[1])
 
         # PATHS
         self.parser.add_argument("--data_path",
@@ -38,7 +38,7 @@ class MonodepthOptions:
         self.parser.add_argument("--log_dir",
                                  type=str,
                                  help="log directory",
-                                 default="./log_dir"))
+                                 default="./log_dir")
 
         # TRAINING options
         self.parser.add_argument("--model_name",
@@ -192,12 +192,12 @@ class MonodepthOptions:
         self.parser.add_argument("--load_weights_folder",
                                  type=str,
                                  help="name of model to load",
-                                 default = "weights")
+                                 default = "models/mono+instance")
         self.parser.add_argument("--models_to_load",
                                  nargs="+",
                                  type=str,
                                  help="models to load",
-                                 default=["encoder", "depth", "pose_encoder", "pose"])
+                                 default=["encoder", "depth", "pose_encoder", "pose", "mask"])
 
         # LOGGING options
         self.parser.add_argument("--log_frequency",
