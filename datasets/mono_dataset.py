@@ -49,7 +49,8 @@ class MonoDataset(data.Dataset):
                  img_ext='.jpg',
                  use_segmentation = False,
                  num_classes = 20,
-                 max_instances = 32):
+                 max_instances = 32,
+                 mode=None):
         super(MonoDataset, self).__init__()
 
         self.data_path = data_path
@@ -67,11 +68,17 @@ class MonoDataset(data.Dataset):
         self.max_instances = max_instances
 
         self.is_train = is_train
-        if not self.is_train:
+
+        if mode is not None:
+           self.mode = mode 
+        elif not self.is_train:
             self.mode = 'val'
         else:
             self.mode = 'train'
+        
         self.img_ext = img_ext
+        
+        self.mode = mode
 
         self.loader = pil_loader
         self.to_tensor = transforms.ToTensor()
@@ -97,7 +104,7 @@ class MonoDataset(data.Dataset):
             self.resize[i] = transforms.Resize((self.height // s, self.width // s),
                                                interpolation=self.interp)
 
-        self.load_depth = self.check_depth()
+        self.load_depth = False #self.check_depth()
 
     def preprocess(self, inputs, color_aug):
         """Resize colour images to the required scales and augment if required
@@ -168,9 +175,9 @@ class MonoDataset(data.Dataset):
         for i in self.frame_idxs:
             if i == "s":
                 other_side = {"r": "l", "l": "r"}[side]
-                inputs[("color", i, -1)] = self.get_color(folder, frame_index, other_side, do_flip)
+                inputs[("color", i, -1)] = self.get_color(folder, frame_index, other_side, do_flip, self.mode)
             else:
-                inputs[("color", i, -1)] = self.get_color(folder, frame_index + i, side, do_flip)
+                inputs[("color", i, -1)] = self.get_color(folder, frame_index + i, side, do_flip, self.mode)
 
         # adjusting intrinsics to match each scale in the pyramid
         for scale in range(self.num_scales):

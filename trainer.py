@@ -36,8 +36,10 @@ from discriminative import DiscriminativeLoss
 
 from IPython import embed
 
-# from networks.fastdepth import models as fastdepth
-# from networks.pydnet.pydnet import Pyddepth
+from networks.fastdepth import models as fastdepth
+from networks.pydnet.pydnet import Pyddepth
+
+from collections import OrderedDict
 
 #import sys
 #sys.path.append("../fastdepth") # Since cannot import from paths with '-'
@@ -129,10 +131,10 @@ class Trainer:
                                                broadcast_buffers=False, 
                                                find_unused_parameters=True) ## Multiple GPU
             self.parameters_to_train += list(self.models["encoder"].parameters())
+
+            depth_num_ch_enc = self.models["encoder"].module.num_ch_enc if self.opt.distributed else self.models["encoder"].num_ch_enc
             
-            num_ch_enc = self.models["encoder"].module.num_ch_enc if self.opt.distributed else self.models["encoder"].num_ch_enc
-            self.models["depth"] = networks.DepthDecoder(
-                                            num_ch_enc, self.opt.scales)
+            self.models["depth"] = networks.DepthDecoder(depth_num_ch_enc, self.opt.scales)
             self.models["depth"].to(self.device)
             if self.opt.distributed:
                 self.models["depth"] = DDP(self.models["depth"],
@@ -174,10 +176,11 @@ class Trainer:
                                                     find_unused_parameters=True) ## Multiple GPU
                     self.parameters_to_train += list(self.models["encoder"].parameters())
 
-                self.models["pose"] = networks.PoseDecoder(
-                                        num_ch_enc, self.num_pose_frames)
+                self.models["pose"] = networks.PoseDecoder(depth_num_ch_enc, self.num_pose_frames)
 
             elif self.opt.pose_model_type == "posecnn":
+                assert not self.opt.train_intrinsics,\
+                "Intrinsics network not compatible with PoseCNN"
                 self.models["pose"] = networks.PoseCNN(
                     self.num_input_frames if self.opt.pose_model_input == "all" else 2)
 
@@ -188,6 +191,19 @@ class Trainer:
                                                broadcast_buffers=False, 
                                                find_unused_parameters=True) ## Multiple GPU
             self.parameters_to_train += list(self.models["pose"].parameters())
+            
+            if self.opt.train_intrinsics:
+                self.resize_len = torch.tensor([[self.opt.width, self.opt.height]],device=self.device)
+                self.models["intrinsics"] = networks.IntrinsicsNetwork(
+                    self.models["encoder"].num_ch_enc,
+                    self.resize_len)
+                self.models["intrinsics"].to(self.device)
+                if self.opt.distributed:
+                    self.models["intrinsics"] = DDP(self.models["intrinsics"],
+                                                    device_ids=[self.opt.rank], 
+                                                    broadcast_buffers=False, 
+                                                    find_unused_parameters=True) 
+                self.parameters_to_train += list(self.models["intrinsics"].parameters())
 
         if self.opt.predictive_mask:
             assert self.opt.disable_automasking, \
@@ -195,9 +211,7 @@ class Trainer:
 
             # Our implementation of the predictive masking baseline has the the same architecture
             # as our depth decoder. We predict a separate mask for each source frame.
-            self.models["predictive_mask"] = networks.DepthDecoder(
-                                                num_ch_enc, self.opt.scales,
-                num_output_channels=(len(self.opt.frame_ids) - 1))
+            self.models["predictive_mask"] = networks.DepthDecoder(depth_num_ch_enc, self.opt.scales,num_output_channels=(len(self.opt.frame_ids) - 1))
             self.models["predictive_mask"].to(self.device)
             if self.opt.distributed:
                 self.models["predictive_mask"] = DDP(self.models["predictive_mask"],
@@ -207,7 +221,7 @@ class Trainer:
             self.parameters_to_train += list(self.models["predictive_mask"].parameters())
             
         if self.use_segmentation:
-            self.models["mask"] = networks.MaskDecoder(self.models["encoder"].num_ch_enc, self.opt.scales, num_output_channels=self.num_classes, n_objects = self.max_instances)
+            self.models["mask"] = networks.MaskDecoder(depth_num_ch_enc, self.opt.scales, num_output_channels=self.num_classes, n_objects = self.max_instances)
         
             self.models["mask"].to(self.device)
             if self.opt.distributed:
@@ -232,41 +246,70 @@ class Trainer:
         if self.opt.distributed:
             self.opt.batch_size = int(self.opt.batch_size / self.opt.world_size)
             self.opt.num_workers = int(self.opt.num_workers / self.opt.world_size)
+            
+        img_ext = '.png' if self.opt.png else '.jpg'
 
         # data
         datasets_dict = {"kitti": datasets.KITTIRAWDataset,
                          "kitti_odom": datasets.KITTIOdomDataset,
+                         "yamaha": datasets.YamahaDataset,
                          "cityscapes": datasets.CityscapesDataset}
         self.dataset = datasets_dict[self.opt.dataset]
 
-        if self.use_segmentation:
-            f_format = "{}_files_seg.txt"
-        else:
-            f_format = "{}_files.txt"
-        fpath = os.path.join(os.path.dirname(__file__), "splits", self.opt.split, f_format)
 
-        train_filenames = readlines(fpath.format("train"))
-        val_filenames = readlines(fpath.format("val"))
         img_ext = '.png' if self.opt.png else '.jpg'
-
-        num_train_samples = len(train_filenames)
+        choices = OrderedDict([(0, "kitti"), (1, "cityscapes"), (2, "yamaha")])
+        data_paths = {"kitti": self.opt.data_path,
+                      "cityscapes": self.opt.cityscapes_data_path,
+                      "yamaha": self.opt.yamaha_data_path}
+        
+        all_train_dataset = []
+        all_val_dataset = []
+        for choice in self.opt.choices:
+            name = choices[choice]
+            setattr(self, name, choice)
+            if choice == 0:
+                spath = os.path.join("splits", "{}_split", self.opt.split)
+            else:
+                spath = os.path.join("splits", "{}_split")
+                
+            if self.use_segmentation:
+                f_format = "{}_files_seg.txt"
+            else:
+                f_format = "{}_files.txt"
+                
+            fpath = os.path.join(os.path.dirname(__file__), spath, f_format)
+            train_filenames = readlines(fpath.format(name, "train"))
+            val_filenames = readlines(fpath.format(name, "val"))
+            
+            dataset = datasets_dict[name]
+            
+            train_dataset = dataset(
+            data_paths[name], train_filenames, self.opt.height, self.opt.width,
+            self.opt.frame_ids, 4, is_train=True, img_ext=img_ext, mode="train", 
+            use_segmentation = self.use_segmentation, num_classes = self.num_classes, max_instances = self.max_instances)
+            all_train_dataset = torch.utils.data.ConcatDataset([all_train_dataset, train_dataset])
+                        
+            val_dataset = dataset(
+            data_paths[name], val_filenames, self.opt.height, self.opt.width,
+            self.opt.frame_ids, 4, is_train=True, img_ext=img_ext, mode="val", 
+            use_segmentation = self.use_segmentation, num_classes = self.num_classes, max_instances = self.max_instances)
+            all_val_dataset = torch.utils.data.ConcatDataset([all_val_dataset, val_dataset])
+        
+        num_train_samples = len(all_train_dataset)
         self.num_total_steps = num_train_samples // self.opt.batch_size * self.opt.num_epochs
 
-        train_dataset = self.dataset(
-            self.opt.data_path, train_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, self.num_scales, is_train=True, img_ext=img_ext, use_segmentation = self.use_segmentation, num_classes = self.num_classes, max_instances = self.max_instances)
         if self.opt.distributed:
             train_sampler = torch.utils.data.distributed.DistributedSampler(train_dataset)
         else:
             train_sampler = None
+        
         self.train_loader = DataLoader(
-            train_dataset, self.opt.batch_size, shuffle=(train_sampler is None),
+            all_train_dataset,  self.opt.batch_size, shuffle=(train_sampler is None),
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True, sampler=train_sampler)
-        val_dataset = self.dataset(
-            self.opt.data_path, val_filenames, self.opt.height, self.opt.width,
-            self.opt.frame_ids, self.num_scales, is_train=False, img_ext=img_ext, use_segmentation = self.use_segmentation)
+
         self.val_loader = DataLoader(
-            val_dataset, self.opt.batch_size, shuffle=(train_sampler is None),
+            all_val_dataset, self.opt.batch_size, shuffle=(train_sampler is None),
             num_workers=self.opt.num_workers, pin_memory=True, drop_last=True)
         self.val_iter = iter(self.val_loader)
 
@@ -274,9 +317,8 @@ class Trainer:
         for mode in ["train", "val"]:
             self.writers[mode] = SummaryWriter(os.path.join(self.log_path, mode))
 
-        if not self.opt.no_ssim:
-            self.ssim = SSIM()
-            self.ssim.to(self.device)
+        self.ssim = SSIM()
+        self.ssim.to(self.device)
 
         self.backproject_depth = {}
         self.project_3d = {}
@@ -295,7 +337,7 @@ class Trainer:
 
         print("Using split:\n  ", self.opt.split)
         print("There are {:d} training items and {:d} validation items\n".format(
-            len(train_dataset), len(val_dataset)))
+            len(all_train_dataset), len(all_val_dataset)))
 
         self.save_opts()
 

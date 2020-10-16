@@ -8,6 +8,10 @@ import numpy as np
 import PIL.Image as pil
 import matplotlib.cm as cm
 
+import skimage.transform
+import numpy as np
+import PIL.Image as pil
+
 from .kitti_utils import generate_depth_map
 from .mono_dataset import MonoDataset
 
@@ -89,7 +93,7 @@ class CityscapesDataset(MonoDataset):
         return image_path
     
     
-    def get_color(self, folder, frame_index, side, do_flip):
+    def get_color(self, folder, frame_index, side, do_flip, mode = None):
         color = self.loader(self.get_image_path(folder, frame_index, side))
 
         if do_flip:
@@ -245,4 +249,4 @@ class CityscapesDataset(MonoDataset):
         
         
         return seg_mask, ins_mask, n_objects
-        
+
