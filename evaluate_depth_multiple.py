@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from layers import disp_to_depth
+from networks.layers import disp_to_depth
 from utils import readlines
 from options import MonodepthOptions
 import datasets
@@ -73,40 +73,39 @@ def evaluate(opt, weights_folder):
         print("-> Loading weights from {}".format(weights_folder))
 
         filenames = readlines(os.path.join(splits_dir, "kitti_split", opt.eval_split, "test_files.txt"))
-        depth_enc_path = os.path.join(weights_folder, "depth_enc.pth")
-        depth_dec_path = os.path.join(weights_folder, "depth_dec.pth")
+        encoder_path = os.path.join(weights_folder, "encoder.pth")
+        encoder_path = os.path.join(weights_folder, "depth.pth")
 
-        depth_enc_dict = torch.load(depth_enc_path)
+        encoder_dict = torch.load(encoder_path)
 
-        dataset = datasets.KITTIDataset(data_path, filenames,
-                                           depth_enc_dict['height'], depth_enc_dict['width'],
+        dataset = datasets.KITTIRAWDataset(data_path, filenames,
+                                           encoder_dict['height'], encoder_dict['width'],
                                            [0], 4, is_train=False)
         dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=opt.num_workers,
                                 pin_memory=True, drop_last=False)
 
-        depth_enc = networks.SWSLResnetEncoder(opt.impr_depth_enc_type, False)
-        depth_num_ch_enc = depth_enc.num_ch_enc #if not opt.distributed else depth_enc.module.num_ch_enc  
-        depth_dec = networks.DepthDecoder(depth_enc.num_ch_enc)
+        encoder_enc = networks.ResnetEncoder(opt.num_layers, False)
+        decoder = networks.DepthDecoder(encoder.num_ch_enc)
 
-        model_dict = depth_enc.state_dict()
+        model_dict = encoder.state_dict()
         if opt.distributed:
-            depth_enc.load_state_dict({k.replace("module.",""): v for k, v in depth_enc_dict.items() if k.replace("module.","") in model_dict})
-            depth_dec_dict = torch.load(depth_dec_path)
-            depth_dec.load_state_dict({k.replace("module.",""): v for k, v in depth_dec_dict.items()})
+            encoder.load_state_dict({k.replace("module.",""): v for k, v in encoder_dict.items() if k.replace("module.","") in model_dict})
+            decoder_dict = torch.load(decoder_path)
+            decoder.load_state_dict({k.replace("module.",""): v for k, v in decoder_dict.items()})
 
         else:
-            depth_enc.load_state_dict({k: v for k, v in depth_enc_dict.items() if k in model_dict})
-            depth_dec.load_state_dict(torch.load(depth_dec_path))
+            encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
+            decoder.load_state_dict(torch.load(decoder_path))
 
-        depth_enc.cuda()
-        depth_enc.eval()
-        depth_dec.cuda()
-        depth_dec.eval()
+        encoder.cuda()
+        encoder.eval()
+        decoder.cuda()
+        decoder.eval()
 
         pred_disps = []
 
         print("-> Computing predictions with size {}x{}".format(
-            depth_enc_dict['width'], depth_enc_dict['height']))
+            encoder_dict['width'], encoder_dict['height']))
 
         with torch.no_grad():
             for data in dataloader:
@@ -116,7 +115,7 @@ def evaluate(opt, weights_folder):
                     # Post-processed results require each image to have two forward passes
                     input_color = torch.cat((input_color, torch.flip(input_color, [3])), 0)
 
-                output = depth_dec(depth_enc(input_color))
+                output = decoder(encoder(input_color))
 
                 pred_disp, _ = disp_to_depth(output[("disp", 0)], opt.min_depth, opt.max_depth)
                 pred_disp = pred_disp.cpu()[:, 0].numpy()
