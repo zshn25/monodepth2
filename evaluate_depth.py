@@ -2,6 +2,7 @@ from __future__ import absolute_import, division, print_function
 
 import os
 import cv2
+# import skimage.transform
 import numpy as np
 
 import torch
@@ -42,7 +43,10 @@ def compute_errors(gt, pred):
 
     sq_rel = np.mean(((gt - pred) ** 2) / gt)
 
-    return abs_rel, sq_rel, rmse, rmse_log, a1, a2, a3
+    abs = np.mean(np.abs(gt - pred))
+    sq = np.mean(((gt - pred) ** 2))
+
+    return abs_rel, sq_rel, rmse, rmse_log, a1, a2, a3, abs, sq
 
 
 def batch_post_process_disparity(l_disp, r_disp):
@@ -61,7 +65,7 @@ def evaluate(opt):
     """
     MIN_DEPTH = 1e-3
     MAX_DEPTH = 80
-
+    device = torch.device("cuda" if opt.gpu else "cpu")
     assert sum((opt.eval_mono, opt.eval_stereo)) == 1, \
         "Please choose mono or stereo evaluation by setting either --eval_mono or --eval_stereo"
 
@@ -75,6 +79,7 @@ def evaluate(opt):
         print("-> Loading weights from {}".format(opt.load_weights_folder))
 
         filenames = readlines(os.path.join(splits_dir, opt.eval_split, "test_files.txt"))
+        img_ext = '.png' if opt.png else '.jpg'
         encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
         decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
 
@@ -82,7 +87,7 @@ def evaluate(opt):
 
         dataset = datasets.KITTIRAWDataset(opt.data_path, filenames,
                                            encoder_dict['height'], encoder_dict['width'],
-                                           [0], 4, is_train=False)
+                                           [0], 4, is_train=False, img_ext=img_ext)
         dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=opt.num_workers,
                                 pin_memory=True, drop_last=False)
 
@@ -94,9 +99,9 @@ def evaluate(opt):
         decoder_dict = torch.load(decoder_path)
         depth_decoder.load_state_dict({k.replace("module.",""): v for k, v in decoder_dict.items()})
 
-        encoder.cuda()
+        encoder.to(device)
         encoder.eval()
-        depth_decoder.cuda()
+        depth_decoder.to(device)
         depth_decoder.eval()
 
         pred_disps = []
@@ -106,7 +111,7 @@ def evaluate(opt):
 
         with torch.no_grad():
             for data in dataloader:
-                input_color = data[("color", 0, 0)].cuda()
+                input_color = data[("color", 0, 0)].to(device)
 
                 if opt.post_process:
                     # Post-processed results require each image to have two forward passes
@@ -164,7 +169,7 @@ def evaluate(opt):
         quit()
 
     gt_path = os.path.join(splits_dir, opt.eval_split, "gt_depths.npz")
-    gt_depths = np.load(gt_path, fix_imports=True, encoding='latin1')["data"]
+    gt_depths = np.load(gt_path, fix_imports=True, encoding='latin1', allow_pickle=True)["data"]
 
     print("-> Evaluating")
 
@@ -182,6 +187,8 @@ def evaluate(opt):
     for i in range(pred_disps.shape[0]):
 
         gt_depth = gt_depths[i]
+        #gt_depth = cv2.resize(gt_depth, (opt.width, opt.height)) # Resize the gt depth
+        # gt_depth = skimage.transform.resize(gt_depth, (opt.height, opt.width), order=0, preserve_range=True, mode='constant')
         gt_height, gt_width = gt_depth.shape[:2]
 
         pred_disp = pred_disps[i]
@@ -205,7 +212,7 @@ def evaluate(opt):
 
         pred_depth *= opt.pred_depth_scale_factor
         if not opt.disable_median_scaling:
-            ratio = np.median(gt_depth) / np.median(pred_depth)
+            ratio = np.nanmedian(gt_depth) / np.nanmedian(pred_depth)
             ratios.append(ratio)
             pred_depth *= ratio
 
@@ -221,8 +228,8 @@ def evaluate(opt):
 
     mean_errors = np.array(errors).mean(0)
 
-    print("\n  " + ("{:>8} | " * 7).format("abs_rel", "sq_rel", "rmse", "rmse_log", "a1", "a2", "a3"))
-    print(("&{: 8.3f}  " * 7).format(*mean_errors.tolist()) + "\\\\")
+    print("\n  " + ("{:>8} | " * 9).format("abs_rel", "sq_rel", "rmse", "rmse_log", "a1", "a2", "a3", "abs", "rmse"))
+    print(("&{: 8.3f}  " * 9).format(*mean_errors.tolist()) + "\\\\")
     print("\n-> Done!")
 
 
