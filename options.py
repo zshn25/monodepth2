@@ -19,14 +19,14 @@ class MonodepthOptions:
         # Dataset choices
         self.parser.add_argument("--choices", nargs="+", type=int, 
                     help="selected datasets for custom split file - \
-                        datasets: {0: KITTI, 1: Cityscapes, 2: Yamaha dataset}", 
-                    default=[1])
+                        datasets: {0: KITTI, 1: Cityscapes, 2: Yamaha dataset 3: Zero dataset}", 
+                    default=[3])
 
         # PATHS
         self.parser.add_argument("--data_path",
                                  type=str,
                                  help="path to the training data",
-                                 default=os.path.join(file_dir, "cityscapes"))
+                                 default=os.path.join(file_dir, "zero_data"))
         self.parser.add_argument("--cityscapes_data_path", 
                                  type=str,
                                  help="path to the cityscapes training data",
@@ -35,6 +35,10 @@ class MonodepthOptions:
                                  type=str,
                                  help="path to the Yamaha training data",
                                  default=os.path.join(file_dir, "yamaha_data"))
+        self.parser.add_argument("--zero_data_path", 
+                                 type=str,
+                                 help="path to the Yamaha training data",
+                                 default=os.path.join(file_dir, "zero_data"))
         self.parser.add_argument("--log_dir",
                                  type=str,
                                  help="log directory",
@@ -48,8 +52,8 @@ class MonodepthOptions:
         self.parser.add_argument("--split",
                                  type=str,
                                  help="which training split to use",
-                                 choices=["eigen_zhou", "eigen_full", "odom", "benchmark", "cityscapes"],
-                                 default="cityscapes")
+                                 choices=["eigen_zhou", "eigen_full", "odom", "benchmark", "cityscapes", "zero"],
+                                 default="zero")
         self.parser.add_argument("--num_layers",
                                  type=int,
                                  help="number of resnet layers",
@@ -58,8 +62,8 @@ class MonodepthOptions:
         self.parser.add_argument("--dataset",
                                  type=str,
                                  help="dataset to train on",
-                                 default="cityscapes",
-                                 choices=["kitti", "kitti_odom", "kitti_depth", "kitti_test", "cityscapes"])
+                                 default="zero",
+                                 choices=["kitti", "kitti_odom", "kitti_depth", "kitti_test", "cityscapes", "yamaha", "zero"])
         self.parser.add_argument("--num_classes",
                                  type=str,
                                  help="Number of semantic segmentation classes",
@@ -74,11 +78,11 @@ class MonodepthOptions:
         self.parser.add_argument("--height",
                                  type=int,
                                  help="input image height",
-                                 default=192)
+                                 default=224)
         self.parser.add_argument("--width",
                                  type=int,
                                  help="input image width",
-                                 default=640)
+                                 default=384)
         self.parser.add_argument("--disparity_smoothness",
                                  type=float,
                                  help="disparity smoothness weight",
@@ -112,13 +116,13 @@ class MonodepthOptions:
         self.parser.add_argument("--use_segmentation",
                                  help="if set, uses image segmentation training",
                                  action="store_true",
-                                 default=True)
+                                 default=False)
 
         # OPTIMIZATION options
         self.parser.add_argument("--batch_size",
                                  type=int,
                                  help="batch size",
-                                 default=1)
+                                 default=2)
         self.parser.add_argument("--learning_rate",
                                  type=float,
                                  help="learning rate",
@@ -126,7 +130,7 @@ class MonodepthOptions:
         self.parser.add_argument("--num_epochs",
                                  type=int,
                                  help="number of epochs",
-                                 default=200)
+                                 default=2000)
         self.parser.add_argument("--scheduler_step_size",
                                  type=int,
                                  help="step size of the scheduler",
@@ -192,12 +196,12 @@ class MonodepthOptions:
         self.parser.add_argument("--load_weights_folder",
                                  type=str,
                                  help="name of model to load",
-                                 default = "models/mono+instance")
+                                 default = "models/mono_640x192")
         self.parser.add_argument("--models_to_load",
                                  nargs="+",
                                  type=str,
                                  help="models to load",
-                                 default=["encoder", "depth", "pose_encoder", "pose", "mask"])
+                                 default=["encoder", "depth", "pose_encoder", "pose"])
 
         # LOGGING options
         self.parser.add_argument("--log_frequency",

@@ -36,8 +36,8 @@ from discriminative import DiscriminativeLoss
 
 from IPython import embed
 
-from networks.fastdepth import models as fastdepth
-from networks.pydnet.pydnet import Pyddepth
+#from networks.fastdepth import models as fastdepth
+#from networks.pydnet.pydnet import Pyddepth
 
 from collections import OrderedDict
 
@@ -442,7 +442,8 @@ class Trainer:
                 features[k] = [f[i] for f in all_features]
 
             outputs = self.models["depth"](features[0])
-            outputs.update(self.models["mask"](features[0]))
+            if self.use_segmentation:
+                outputs.update(self.models["mask"](features[0]))
         else:
             # Otherwise, we only feed the image with frame_id 0 through the depth encoder
             if self.opt.depth_model_arch in ["fastdepth", "pydnet"]:
@@ -450,7 +451,8 @@ class Trainer:
             else:
                 features = self.models["encoder"](inputs["color_aug", 0, 0])
                 outputs = self.models["depth"](features)
-                outputs.update(self.models["mask"](features))
+                if self.use_segmentation:
+                    outputs.update(self.models["mask"](features))
 
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)
