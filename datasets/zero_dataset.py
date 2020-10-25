@@ -22,7 +22,9 @@ class ZeroDataset(MonoDataset):
 
         # Oriignal Image
         self.K[0,0] /= 1920
+        self.K[0,2] /= 1920
         self.K[1,1] /= 1080 
+        self.K[1,2] /= 1080 
 
         self.full_res_shape = (1920, 1080)
     
