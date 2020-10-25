@@ -25,6 +25,7 @@ import networks
 from networks.layers import disp_to_depth
 from utils import download_model_if_doesnt_exist
 
+use_segmentation = False
 # Segmentation classes for cityscapes dataset
 class_names = [
                         "unlabelled",
@@ -155,6 +156,7 @@ def parse_args():
     parser.add_argument('--model_name', type=str,
                         help='name of a pretrained model to use',
                         choices=[
+                            "recent",
                             "mono+instance",
                             "stereo_640x192",
                             "mono+stereo_640x192",
@@ -164,7 +166,7 @@ def parse_args():
                             "mono_1024x320",
                             "stereo_1024x320",
                             "mono+stereo_1024x320"],
-                         default="mono+instance")
+                         default="recent")
     parser.add_argument('--ext', type=str,
                         help='image extension to search for in folder', default="jpg")
     parser.add_argument("--no_cuda",
@@ -215,13 +217,14 @@ def test_simple(args):
     depth_decoder.to(device)
     depth_decoder.eval()
     
-    print("   Loading pretrained mask decoder")
-    mask_decoder = networks.MaskDecoder(num_ch_enc = encoder.num_ch_enc, scales = range(4), num_output_channels = len(class_names))
-    loaded_dict = torch.load(mask_decoder_path, map_location=device)
-    mask_decoder.load_state_dict(loaded_dict)
+    if use_segmentation:
+        print("   Loading pretrained mask decoder")
+        mask_decoder = networks.MaskDecoder(num_ch_enc = encoder.num_ch_enc, scales = range(4), num_output_channels = len(class_names))
+        loaded_dict = torch.load(mask_decoder_path, map_location=device)
+        mask_decoder.load_state_dict(loaded_dict)
 
-    mask_decoder.to(device)
-    mask_decoder.eval()
+        mask_decoder.to(device)
+        mask_decoder.eval()
 
     # FINDING INPUT IMAGES
     if os.path.isfile(args.image_path):
@@ -261,7 +264,8 @@ def test_simple(args):
                 t2 = time()
                 outputs = depth_decoder(features)
                 t3 = time()
-                mask_outputs = mask_decoder(features)
+                if use_segmentation:
+                    mask_outputs = mask_decoder(features)
                 t4 = time()
                 print('Encoder time: {:.4f} Depth Decoder time: {:.4f} Mask Decoder time: {:.4f}'.format(t2 - t1, t3 - t2, t4 - t3))
 
@@ -287,45 +291,46 @@ def test_simple(args):
             name_dest_im = os.path.join(output_directory, "{}_disp.jpeg".format(output_name))
             im.save(name_dest_im)
             
-            # Segmentation mask prediction
-            seg_mask_pred = mask_outputs[("seg_mask", 0)]
-            seg_mask_pred = np.squeeze(seg_mask_pred.data.max(1)[1].cpu().numpy(), axis = 0)
+            if use_segmentation:
+                # Segmentation mask prediction
+                seg_mask_pred = mask_outputs[("seg_mask", 0)]
+                seg_mask_pred = np.squeeze(seg_mask_pred.data.max(1)[1].cpu().numpy(), axis = 0)
 
-            seg_mask = decode_mask(seg_mask_pred) * 255 #* ins_mask_pred[..., None]
-            seg_mask_im = pil.fromarray(seg_mask.astype(np.uint8))
-            name_dest_seg_mask = os.path.join(output_directory, "{}_seg_mask.jpeg".format(output_name))
-            seg_mask_im.save(name_dest_seg_mask)
-            
-                        
-            # Instance mask prediction
-            ins_mask_pred = mask_outputs[("ins_mask", 0)].data.max(1)[1].cpu().numpy()
-            ins_mask_pred = (ins_mask_pred + 1) * seg_mask_pred[None]
-            ins_mask_pred = np.squeeze(ins_mask_pred, axis = 0)
-            
-            # print(np.amax(seg_mask_pred), -np.amax(-seg_mask_pred))
-            # print(np.amax(ins_mask_pred), -np.amax(-ins_mask_pred))
-            
-            objects = np.unique(ins_mask_pred.flatten())
-            n_objects = len(objects) - 1 
-            
-            colors = [cm.Spectral(each) for each in np.linspace(0, 1, n_objects)]
-            ins_mask_pred_color = np.zeros((ins_mask_pred.shape[0], ins_mask_pred.shape[1], 3), dtype=np.uint8)
-            for i, obj in zip(range(n_objects), objects):
-                ins_mask_pred_color[ins_mask_pred == obj] = (np.array(colors[i][:3]) * 255).astype('int')
+                seg_mask = decode_mask(seg_mask_pred) * 255 #* ins_mask_pred[..., None]
+                seg_mask_im = pil.fromarray(seg_mask.astype(np.uint8))
+                name_dest_seg_mask = os.path.join(output_directory, "{}_seg_mask.jpeg".format(output_name))
+                seg_mask_im.save(name_dest_seg_mask)
                 
-            #ins_mask_pred = 0.3 + 0.7 * (ins_mask_pred / np.amax(ins_mask_pred)) 
-            #ins_mask = ins_mask_pred * 255
-            ins_mask_pred_color = ins_mask_pred_color.astype(np.uint8)
-            for _ in range(3):
-                t5 = time()
-                get_bboxes(mask_outputs, ins_mask_pred_color, output_name, output_directory)
-                t6 = time()
-                print('Post processing time =  {:.4f}'.format(t6 - t5))
-            
-            ins_mask_im = pil.fromarray(ins_mask_pred_color)
-            name_dest_ins_mask = os.path.join(output_directory, "{}_ins_mask.jpeg".format(output_name))
-            ins_mask_im.save(name_dest_ins_mask)
-            
+                            
+                # Instance mask prediction
+                ins_mask_pred = mask_outputs[("ins_mask", 0)].data.max(1)[1].cpu().numpy()
+                ins_mask_pred = (ins_mask_pred + 1) * seg_mask_pred[None]
+                ins_mask_pred = np.squeeze(ins_mask_pred, axis = 0)
+                
+                # print(np.amax(seg_mask_pred), -np.amax(-seg_mask_pred))
+                # print(np.amax(ins_mask_pred), -np.amax(-ins_mask_pred))
+                
+                objects = np.unique(ins_mask_pred.flatten())
+                n_objects = len(objects) - 1 
+                
+                colors = [cm.Spectral(each) for each in np.linspace(0, 1, n_objects)]
+                ins_mask_pred_color = np.zeros((ins_mask_pred.shape[0], ins_mask_pred.shape[1], 3), dtype=np.uint8)
+                for i, obj in zip(range(n_objects), objects):
+                    ins_mask_pred_color[ins_mask_pred == obj] = (np.array(colors[i][:3]) * 255).astype('int')
+                    
+                #ins_mask_pred = 0.3 + 0.7 * (ins_mask_pred / np.amax(ins_mask_pred)) 
+                #ins_mask = ins_mask_pred * 255
+                ins_mask_pred_color = ins_mask_pred_color.astype(np.uint8)
+                for _ in range(3):
+                    t5 = time()
+                    get_bboxes(mask_outputs, ins_mask_pred_color, output_name, output_directory)
+                    t6 = time()
+                    print('Post processing time =  {:.4f}'.format(t6 - t5))
+                
+                ins_mask_im = pil.fromarray(ins_mask_pred_color)
+                name_dest_ins_mask = os.path.join(output_directory, "{}_ins_mask.jpeg".format(output_name))
+                ins_mask_im.save(name_dest_ins_mask)
+                
 
             print("   Processed {:d} of {:d} images - saved prediction to {}".format(
                 idx + 1, len(paths), name_dest_im))
