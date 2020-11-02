@@ -79,7 +79,7 @@ def evaluate(opt):
         print("-> Loading weights from {}".format(opt.load_weights_folder))
 
         filenames = readlines(os.path.join(splits_dir, "kitti_split", opt.eval_split, "test_files.txt"))
-        
+
         encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
         decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
 
