@@ -70,10 +70,12 @@ class KITTIRAWDataset(KITTIDataset):
             folder,
             "velodyne_points/data/{:010d}.bin".format(int(frame_index)))
 
-        depth_gt = generate_depth_map(calib_path, velo_filename, self.side_map[side])
-        
-        depth_gt = skimage.transform.resize(
-            depth_gt, (self.height, self.width), order=0, preserve_range=True, mode='constant')
+        try:
+            depth_gt = generate_depth_map(calib_path, velo_filename, self.side_map[side])
+            depth_gt = skimage.transform.resize(
+                depth_gt, self.full_res_shape[::-1], order=0, preserve_range=True, mode='constant')
+        except FileNotFoundError: # not all images have corresponding Velodyne points
+            depth_gt = np.zeros(self.full_res_shape[::-1])
 
         if do_flip:
             depth_gt = np.fliplr(depth_gt)
@@ -96,10 +98,10 @@ class KITTIOdomDataset(KITTIDataset):
             f_str)
         return image_path
 
-class KITTIDepthDataset(KITTIDataset):
+class KITTIDepthDataset(KITTIRAWDataset):
     """KITTI dataset which uses the updated ground truth depth maps.
     Assumes the [gt depths dataset](http://www.cvlibs.net/datasets/kitti/eval_depth.php?benchmark=depth_prediction) to be in the Kitti folder.
-    After downloading the dataset, combine the train and val folder into gtdepths folder and place it in the kitti-raw folder
+    After downloading the dataset, combine the train and val folder into gtdepths folder and place it in the kitti-raw folder.
     """
     def __init__(self, *args, **kwargs):
         super(KITTIDepthDataset, self).__init__(*args, **kwargs)
@@ -131,27 +133,14 @@ class KITTIDepthDataset(KITTIDataset):
                 "proj_depth/groundtruth/image_0{}".format(self.side_map[side]),
                 f_str)
 
-        # import pdb
-        # pdb.set_trace()
         try:
             depth_gt = pil.open(depth_path)
-            # depth_gt = depth_gt.resize(self.full_res_shape, pil.NEAREST)
+            depth_gt = depth_gt.resize(self.full_res_shape, pil.NEAREST)
             depth_gt = np.array(depth_gt).astype(np.float32) / 256
+            if do_flip:
+                depth_gt = np.fliplr(depth_gt)
         except FileNotFoundError: # since not all gt data is available
-            calib_path = os.path.join(self.data_path, folder.split("/")[0])
-
-            velo_filename = os.path.join(
-                self.data_path,
-                folder,
-                "velodyne_points/data/{:010d}.bin".format(int(frame_index)))
-
-            depth_gt = generate_depth_map(calib_path, velo_filename, self.side_map[side])
-
-        depth_gt = skimage.transform.resize(
-            depth_gt, (self.height, self.width), order=0, preserve_range=True, mode='constant')
-
-        if do_flip:
-            depth_gt = np.fliplr(depth_gt)
+            depth_gt = super().get_depth(folder, frame_index, side, do_flip)
 
         return depth_gt
 
@@ -160,4 +149,4 @@ class KITTIDenseDepthDataset(KITTIDepthDataset):
         super(KITTIDenseDepthDataset, self).__init__(*args, **kwargs)
 
     def get_depth(self, folder, frame_index, side, do_flip):
-        return super().get_depth(self, folder, frame_index, side, do_flip, get_dense=True)
+        return super().get_depth(folder, frame_index, side, do_flip, get_dense=True)
