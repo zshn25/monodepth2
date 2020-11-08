@@ -162,7 +162,11 @@ class MonoDataset(data.Dataset):
                 inputs[("color", i, -1)] = self.get_color(folder, frame_index, other_side, do_flip, self.mode)
 
             else:
-                inputs[("color", i, -1)] = self.get_color(folder, frame_index + i, side, do_flip, self.mode)
+                try:
+                  inputs[("color", i, -1)] = self.get_color(folder, frame_index + i, side, do_flip, self.mode)
+                except:
+                  inputs[("color", i, -1)] = self.get_color(folder, frame_index, side, do_flip, self.mode)
+
 
         # adjusting intrinsics to match each scale in the pyramid
         for scale in range(self.num_scales):
