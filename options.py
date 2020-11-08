@@ -20,7 +20,7 @@ class MonodepthOptions:
         self.parser.add_argument("--choices", nargs="+", type=int, 
                     help="selected datasets for custom split file - \
                         datasets: {0: KITTI, 1: Cityscapes, 2: Yamaha dataset, 3: E2R dataset}", 
-                    default=[3])
+                    default=[0])
 
         # PATHS
         self.parser.add_argument("--data_path",
@@ -37,7 +37,7 @@ class MonodepthOptions:
                                  default=os.path.join(file_dir, "yamaha_data"))
         self.parser.add_argument("--e2r_data_path", 
                                  type=str,
-                                 help="path to the E2R training data",
+                                 help="path to the Yamaha training data",
                                  default=os.path.join(file_dir, "e2r_dataset"))
         self.parser.add_argument("--log_dir",
                                  type=str,
@@ -70,11 +70,11 @@ class MonodepthOptions:
         self.parser.add_argument("--height",
                                  type=int,
                                  help="input image height",
-                                 default=256)
+                                 default=192)
         self.parser.add_argument("--width",
                                  type=int,
                                  help="input image width",
-                                 default=448)
+                                 default=640)
         self.parser.add_argument("--disparity_smoothness",
                                  type=float,
                                  help="disparity smoothness weight",
@@ -104,7 +104,7 @@ class MonodepthOptions:
                                  type=str,
                                  help="Depth model architecture",
                                  choices=["resnet", "fastdepth", "pydnet"],
-                                 default="pydnet")
+                                 default="resnet")
 
         # OPTIMIZATION options
         self.parser.add_argument("--batch_size",

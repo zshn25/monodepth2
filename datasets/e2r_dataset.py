@@ -15,13 +15,12 @@ class E2RDataset(MonoDataset):
     def __init__(self, *args, **kwargs):
         super(E2RDataset, self).__init__(*args, **kwargs)
 
-        # For the stereo dataset
-        self.K = np.array([[554.9437/1920, 0, 0.5, 0],
-                           [0, 555.7158/1080, 0.5, 0],
+        self.K = np.array([[1.104, 0, 0.5, 0],
+                           [0, 2.212, 0.5, 0],
                            [0, 0, 1, 0],
                            [0, 0, 0, 1]], dtype=np.float32) 
 
-        self.full_res_shape = (1920, 1080)
+        self.full_res_shape = (1280, 720)
         self.side_map = {"l": "l", "r": "r"}
     
     
