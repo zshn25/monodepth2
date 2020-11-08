@@ -9,24 +9,23 @@ from .kitti_utils import generate_depth_map
 from .mono_dataset import MonoDataset
 
 
-class YamahaDataset(MonoDataset):
+class ZeroBikeDataset(MonoDataset):
     """Superclass for different types of Cityscapes dataset loaders
     """
     def __init__(self, *args, **kwargs):
-        super(YamahaDataset, self).__init__(*args, **kwargs)
+        super(ZeroBikeDataset, self).__init__(*args, **kwargs)
 
-        self.K = np.array([[406.9505/1280, 0, 661.4506/1280, 0],
-                           [0, 407.8397/720, 360.7874/720, 0],
+        self.K = np.array([[655.4564/1920, 0, 939.3567/1920, 0],
+                           [0, 655.2325/1080, 536.3076/1080, 0],
                            [0, 0, 1, 0],
                            [0, 0, 0, 1]], dtype=np.float32) 
 
-        self.full_res_shape = (1280, 720)
+        self.full_res_shape = (1920, 1080)
     
     
     def get_image_path(self, folder, frame_index, side, mode):
-        f_str = folder + "_{:06d}.png".format(frame_index)
-        image_path = os.path.join(self.data_path, mode, f_str)
-        
+        f_str = "frame_{:06d}.png".format(frame_index)
+        image_path = os.path.join(self.data_path, folder, f_str)
         return image_path
     
     
@@ -37,4 +36,3 @@ class YamahaDataset(MonoDataset):
             color = color.transpose(pil.FLIP_LEFT_RIGHT)
 
         return color
-

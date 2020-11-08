@@ -20,8 +20,8 @@ parser = argparse.ArgumentParser(description="Split options")
 ## Choices
 parser.add_argument("--choices", nargs="+", type=int, 
                     help="selected datasets for custom split file - \
-                        datasets: {1: Cityscapes, 2: Yamaha dataset}", 
-                    default=[1,2])
+                        datasets: {0: Cityscapes, 1: Yamaha dataset, 2:Zerobike dataset, 3:E2R stereo dataset}", 
+                    default=[0,1,2,3])
 
 
 ## Cityscapes dataset
@@ -35,7 +35,7 @@ parser.add_argument("--cityscapes_split_path",type=str,
 
 parser.add_argument("--gen_city_split", 
                     help="generate cityscapes dataset split",
-                    action="store_true", default = False)
+                    action="store_true", default = True)
 
 
 ## Yamaha dataset
@@ -49,7 +49,36 @@ parser.add_argument("--yamaha_split_path", type=str,
 
 parser.add_argument("--gen_yamaha_split", 
                     help="generate yamaha dataset split",
-                    action="store_true", default = False)
+                    action="store_true", default = True)
+                    
+                    
+## Zerobike dataset
+parser.add_argument("--zerobike_data_path", type=str,
+                    help="path to the zerobike training data",
+                    default="e2r/data/zerobike/ZeroData_Raw/")
+                    #default="zerobike_dataset")
+
+parser.add_argument("--zerobike_split_path", type=str,
+                    help="path to the zerobike dataset split file",
+                    default=os.path.join(splits_path, "zerobike_split"))
+
+parser.add_argument("--gen_zerobike_split", 
+                    help="generate zerobike dataset split",
+                    action="store_true", default = True)
+                    
+
+## E2R dataset
+parser.add_argument("--e2r_data_path", type=str,
+                    help="path to the e2r training data",
+                    default="e2r_dataset")
+
+parser.add_argument("--e2r_split_path", type=str,
+                    help="path to the e2r dataset split file",
+                    default=os.path.join(splits_path, "e2r_split"))
+
+parser.add_argument("--gen_e2r_split", 
+                    help="generate e2r dataset split",
+                    action="store_true", default = True)
 
 
 opts = parser.parse_args()
@@ -119,6 +148,8 @@ def gen_yamaha_split_data():
     val_file = open(opts.yamaha_split_path + os.sep + "val_files.txt", "w")
     for (_, _, filenames) in os.walk(val_path):
         filenames = sorted(filenames)
+        all_lines = []
+        out_line = ""
         for file in filenames:
             folder = file.split("_")[0] 
             img_head =  "/".join([folder, folder])
@@ -150,8 +181,87 @@ def refine_city_data(path):
     file = open(path, "w")
     file.writelines(all_list[:-1])
     file.close()
-    
 
+def gen_zerobike_split_data():
+
+    train_path = os.path.join(opts.zerobike_data_path, "train")
+    val_path = os.path.join(opts.zerobike_data_path, "val")
+
+    ## writing zerobike train files
+    train_file = open(opts.zerobike_split_path + os.sep + "train_files.txt", "w")
+    for (dirpath, subdirs, filenames) in os.walk(train_path):
+        filenames = sorted(filenames)
+        all_lines = []
+        out_line = ""
+        for file in filenames:
+            dir_p = dirpath.split("/")
+            folder =  "/".join([dir_p[-2], dir_p[-1]])
+            frame_index = file.split(".")[0].split("_")[-1]
+            out_line = " ".join([folder, frame_index, "1"])
+            all_lines.append(out_line)
+        all_lines = all_lines[1:-1]
+        w_lines = map(lambda x:x+'\n', all_lines)
+        train_file.writelines(w_lines)  
+    train_file.close()
+
+    ## writing zerobike val files
+    val_file = open(opts.zerobike_split_path + os.sep + "val_files.txt", "w")
+    for (dirpath, subdirs, filenames) in os.walk(val_path):
+        filenames = sorted(filenames)
+        all_lines = []
+        out_line = ""
+        for file in filenames:
+            dir_p = dirpath.split("/")
+            folder =  "/".join([dir_p[-2], dir_p[-1]])
+            frame_index = file.split(".")[0].split("_")[-1]
+            out_line = " ".join([folder, frame_index, "1"])
+            all_lines.append(out_line)
+        all_lines = all_lines[1:-1]
+        w_lines = map(lambda x:x+'\n', all_lines)
+        val_file.writelines(w_lines)  
+    val_file.close()
+    
+def gen_e2r_split_data():
+
+    train_path = os.path.join(opts.e2r_data_path, "train")
+    val_path = os.path.join(opts.e2r_data_path, "val")
+
+    ## writing e2r train files
+    train_file = open(opts.e2r_split_path + os.sep + "train_files.txt", "w")
+    for (dirpath, subdirs, filenames) in os.walk(train_path):
+        filenames = sorted(filenames)
+        all_lines = []
+        out_line = ""
+        for file in filenames:
+            dir_p = dirpath.split("/")
+            side = dir_p[-1].split("_")[-1]
+            folder =  "/".join([dir_p[-3], dir_p[-2]])
+            frame_index = file.split(".")[0].split("_")[-1]
+            out_line = " ".join([folder, frame_index, side])
+            print(out_line)
+            all_lines.append(out_line)
+        all_lines = all_lines[1:-1]
+        w_lines = map(lambda x:x+'\n', all_lines)
+        train_file.writelines(w_lines)  
+    train_file.close()
+
+    ## writing e2r val files
+    val_file = open(opts.e2r_split_path + os.sep + "val_files.txt", "w")
+    for (dirpath, subdirs, filenames) in os.walk(val_path):
+        filenames = sorted(filenames)
+        all_lines = []
+        out_line = ""
+        for file in filenames:
+            dir_p = dirpath.split("/")
+            side = dir_p[-1].split("_")[-1]
+            folder =  "/".join([dir_p[-3], dir_p[-2]])
+            frame_index = file.split(".")[0].split("_")[-1]
+            out_line = " ".join([folder, frame_index, side])
+            all_lines.append(out_line)
+        all_lines = all_lines[1:-1]
+        w_lines = map(lambda x:x+'\n', all_lines)
+        val_file.writelines(w_lines)  
+    val_file.close()
     
 def main():
     choices = opts.choices 
@@ -163,7 +273,15 @@ def main():
         if choice == 2:
             if opts.gen_yamaha_split:
                 gen_yamaha_split_data()
-    
+                
+        if choice == 3:
+            if opts.gen_zerobike_split:
+                gen_zerobike_split_data()
+
+        if choice == 4:
+            if opts.gen_e2r_split:
+                gen_e2r_split_data()
+                  
         
 if __name__ == "__main__":
     main()
