@@ -4,3 +4,7 @@
 [submodule "networks/fastdepth"]
 	path = networks/fastdepth
 	url = https://github.com/zshn25/fast-depth.git
+[submodule "networks/rexnet"]
+	path = networks/rexnet
+	url = https://github.com/zshn25/rexnet.git
+	branch = master

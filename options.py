@@ -85,7 +85,7 @@ class MonodepthOptions:
         self.parser.add_argument("--depth_model_arch", # architecture
                                  type=str,
                                  help="Depth model architecture",
-                                 choices=["resnet", "fastdepth", "pydnet"],
+                                 choices=["resnet", "fastdepth", "pydnet", "rexnet"],
                                  default="resnet")
 
         # OPTIMIZATION options

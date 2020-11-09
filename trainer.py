@@ -36,6 +36,8 @@ from IPython import embed
 
 from networks.fastdepth import models as fastdepth
 from networks.pydnet.pydnet import Pyddepth
+from networks.rexnet.rexunet import ReXDepth
+
 #import sys
 #sys.path.append("../fastdepth") # Since cannot import from paths with '-'
 #import models as fastdepth
@@ -91,18 +93,15 @@ class Trainer:
         if self.opt.use_stereo:
             self.opt.frame_ids.append("s")
 
-        if self.opt.depth_model_arch == "pydnet":
-            self.models["fastdepth"] = Pyddepth(self.opt.scales, True, False)
-            self.models["fastdepth"].to(self.device)
-            if self.opt.distributed:
-                self.models["fastdepth"] = DDP(self.models["fastdepth"],
-                                               device_ids=[self.opt.rank], 
-                                               broadcast_buffers=False, 
-                                               find_unused_parameters=True) ## Multiple GPU
-            self.parameters_to_train += list(self.models["fastdepth"].parameters())
-        elif self.opt.depth_model_arch == "fastdepth":
-            self.models["fastdepth"] = fastdepth.MobileNetSkipAddMultiScale(False,
-                            pretrained_path = "", scales = self.opt.scales)
+        if self.opt.depth_model_arch in ["fastdepth", "pydnet", "rexnet"]:
+            if self.opt.depth_model_arch == "pydnet":
+                self.models["fastdepth"] = Pyddepth(self.opt.scales, True, False)
+            elif self.opt.depth_model_arch == "rexnet":
+                self.models["fastdepth"] = ReXDepth(self.opt.scales)#, 
+                                        # pretrained_path=os.path.join("monodepth2", "networks", "rexnet", "rexnetv1_1.0x.pth"))
+            elif self.opt.depth_model_arch == "fastdepth":
+                self.models["fastdepth"] = fastdepth.MobileNetSkipAddMultiScale(False,
+                                pretrained_path = "", scales = self.opt.scales)
 
             self.models["fastdepth"].to(self.device)
             if self.opt.distributed:
@@ -372,11 +371,11 @@ class Trainer:
             outputs = self.models["depth"](features[0])
         else:
             # Otherwise, we only feed the image with frame_id 0 through the depth encoder
-            if self.opt.depth_model_arch in ["fastdepth", "pydnet"]:
-                outputs = self.models["fastdepth"](inputs["color_aug", 0, 0])
-            else:
+            if self.opt.depth_model_arch in ["resnet", "monodepth"]:
                 features = self.models["encoder"](inputs["color_aug", 0, 0])
                 outputs = self.models["depth"](features)
+            else:
+                outputs = self.models["fastdepth"](inputs["color_aug", 0, 0])
 
         if self.opt.predictive_mask:
             outputs["predictive_mask"] = self.models["predictive_mask"](features)

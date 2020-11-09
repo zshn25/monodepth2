@@ -8,6 +8,7 @@ from __future__ import absolute_import, division, print_function
 import os
 import hashlib
 import zipfile
+from torch import nn
 from six.moves import urllib
 
 
@@ -112,3 +113,55 @@ def download_model_if_doesnt_exist(model_name):
             f.extractall(model_path)
 
         print("   Model unzipped to {}".format(model_path))
+
+# def load_model(model_name, scales=[0,1,2,3], pretrained_path:str=None):
+#     """
+#     Loads one of the following models
+#     Inputs: 
+#         model_name: resnet, fastdepth, pydnet, rexnet
+#         scales:
+#         pretrained_path: Path to pretrained .pth file
+#     Outputs:
+#         outputs: model, 
+#                  encoder if 'resnet' else None
+#     """
+#     encoder = None
+#     if model_name in ["fastdepth", "pydnet", "rexnet"]:
+#         if model_name == "pydnet":
+#             model = Pyddepth(scales, True, False)
+#         elif model_name == "rexnet":
+#             model = ReXDepth(scales)#, 
+#                                     # pretrained_path=os.path.join("monodepth2", "networks", "rexnet", "rexnetv1_1.0x.pth"))
+#         elif model_name == "fastdepth":
+#             model = fastdepth.MobileNetSkipAddMultiScale(False,
+#                             pretrained_path = "", scales = scales)
+
+#         if pretrained_path:
+
+#     else:
+#         encoder = networks.ResnetEncoder(
+#             opt.num_layers, opt.weights_init == "pretrained")
+#         encoder.to(device)
+        
+#         num_ch_enc = encoder.module.num_ch_enc if opt.distributed else encoder.num_ch_enc
+#         decoder = networks.DepthDecoder(
+#                                         num_ch_enc, scales)
+#         model = CombineEncoderDecoder(encoder, decoder)
+
+    
+#     return model, decoder
+
+class CombineEncoderDecoder(nn.Module):
+    """This is a wrapper to combine encoder and decoder into a single model
+    Inputs: 
+        inputs: encoder, decoder
+    Outputs:
+        outputs: decoder(encoder)
+    """
+    def __init__(self, encoder, decoder):
+        super(CombineEncoderDecoder, self).__init__()
+        self.encoder = encoder
+        self.decoder = decoder
+        
+    def forward(self, image):
+        return self.decoder(self.encoder(image))

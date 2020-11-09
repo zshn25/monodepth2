@@ -34,9 +34,21 @@ This is an unofficial fork of [monodepth2](https://github.com/nianticlabs/monode
 
 ## ⚙️ Setup
 
-- Clone this repo and run `git submodule update --init --recursive` to get the submodules
+Clone this repo and run `git submodule update --init --recursive` to get the submodules
 
-Licence: Same as [licence for monodepth2](https://github.com/nianticlabs/monodepth2/blob/master/LICENSE)
+## Models comparison
+
+The following models were trained and evaluated on KittiRAW at 640x192. The runtimes are measured on same GPU with batch size 16.
+
+| model    | abs_rel |   sq_rel |     rmse | rmse_log |       a1 |       a2 |       a3 |     abs  |     rmse | runtime   | ![input](assets/1.png) |
+|     -    |    -    |     -    |     -    |     -    |     -    |     -    |     -    |    -     |     -    |     -     |     -     |
+|Monodepth2|  0.132  |   1.042  |   5.138  |   0.210  |   0.845  |   0.948  |   0.977  |   2.535  |  29.680  |    5.6 ms | ![resnet](assets/img_resnet.png)     |
+| Pydnet   |  0.153  |   1.250  |   5.464  |   0.228  |   0.811  |   0.933  |   0.971  |   2.800  |  33.226  | 5.26 ms   | ![pydnet](assets/img_pydnet.png)     |
+|fastdepth |   0.317 |  13.325  |  10.207  |   0.384  |   0.792  |   0.917  |   0.956  |   3.776  | 105.466  | 5.35 ms   | ![fastdepth](assets/img_fastdepth.png)     |
+| ReXUNet  |  0.142  |   1.136  |   5.359  |   0.219  |   0.825  |   0.940  |   0.975  |   2.650  |  31.782  | 8.89 ms   | ![rexnet](assets/img_rexnet.png)     |
+
+
+Licence: Same as [licence for monodepth2](https://github.com/nianticlabs/monodepth2/blob/master/LICENSE) for forked code. Rest is licenced CC.
 
 Doc from parent:
 ___
