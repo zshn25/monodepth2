@@ -20,7 +20,7 @@ class MonodepthOptions:
         self.parser.add_argument("--choices", nargs="+", type=int, 
                     help="selected datasets for custom split file - \
                         datasets: {0: KITTI, 1: Cityscapes, 2: Yamaha dataset, 3: Zerobike dataset, 4: E2R dataset}", 
-                    default=[0,1])
+                    default=[0,1,2,3,4])
 
         # PATHS
         self.parser.add_argument("--data_path",

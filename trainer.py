@@ -238,12 +238,14 @@ class Trainer:
         datasets_dict = {"kitti": datasets.KITTIRAWDataset,
                          "cityscapes": datasets.CityscapesDataset,
                          "yamaha": datasets.YamahaDataset,
+                         "zerobike": datasets.ZeroBikeDataset,
                          "e2r": datasets.E2RDataset}
         
-        choices = OrderedDict([(0, "kitti"), (1, "cityscapes"), (2, "yamaha"), (3, "e2r")])
+        choices = OrderedDict([(0, "kitti"), (1, "cityscapes"), (2, "yamaha"), (3, "zerobike"), (4, "e2r")])
         data_paths = {"kitti": self.opt.data_path,
                       "cityscapes": self.opt.cityscapes_data_path,
                       "yamaha": self.opt.yamaha_data_path,
+                      "zerobike": self.opt.zerobike_data_path,
                       "e2r": self.opt.e2r_data_path}
         
         all_train_dataset = []
