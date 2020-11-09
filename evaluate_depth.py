@@ -82,7 +82,7 @@ def evaluate(opt):
 
         dataset = datasets.KITTIRAWDataset(opt.data_path, filenames,
                                            encoder_dict['height'], encoder_dict['width'],
-                                           [0], 4, is_train=False)
+                                           [0], 4, is_train=False, img_ext=".png" if opt.png else ".jpg")
         dataloader = DataLoader(dataset, 16, shuffle=False, num_workers=opt.num_workers,
                                 pin_memory=True, drop_last=False)
 
@@ -90,7 +90,7 @@ def evaluate(opt):
         depth_decoder = networks.DepthDecoder(encoder.num_ch_enc)
 
         model_dict = encoder.state_dict()
-        encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
+        encoder.load_state_dict({k.replace(".module",""): v for k, v in encoder_dict.items() if k.replace(".module","") in model_dict})
         depth_decoder.load_state_dict(torch.load(decoder_path))
 
         encoder.cuda()
