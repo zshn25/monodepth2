@@ -112,8 +112,9 @@ class Trainer:
             self.parameters_to_train += list(self.models["fastdepth"].parameters())
 
         else:
-            self.models["encoder"] = networks.ResnetEncoder(
-                self.opt.num_layers, self.opt.weights_init == "pretrained")
+            # self.models["encoder"] = networks.ResnetEncoder(
+            #     self.opt.num_layers, self.opt.weights_init == "pretrained")
+            self.models["encoder"] = networks.EffnetEncoder(pretrained=True)
             self.models["encoder"].to(self.device)
             if self.opt.distributed:
                 self.models["encoder"] = DDP(self.models["encoder"],
@@ -372,8 +373,12 @@ class Trainer:
         else:
             # Otherwise, we only feed the image with frame_id 0 through the depth encoder
             if self.opt.depth_model_arch in ["resnet", "monodepth"]:
-                features = self.models["encoder"](inputs["color_aug", 0, 0])
-                outputs = self.models["depth"](features)
+                outputs = {}
+                for frame_id in  self.opt.frame_ids:
+                    # For each frame_id run the disp network
+                    features = self.models["encoder"](inputs["color_aug", frame_id, 0])
+                    _outputs = self.models["depth"](features)
+                    outputs.update({(k[0],frame_id,k[1]):v for k,v in _outputs.items()})
             else:
                 outputs = self.models["fastdepth"](inputs["color_aug", 0, 0])
 
@@ -522,6 +527,7 @@ class Trainer:
                         inputs[("color", frame_id, source_scale)],
                         outputs[("sample", frame_id, scale)],
                         padding_mode="border", align_corners=True)
+                    #outputs[("depth", frame_id, scale)] = 
 
                 if not self.opt.disable_automasking:
                     outputs[("color_identity", frame_id, scale)] = \
