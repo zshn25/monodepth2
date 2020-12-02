@@ -199,7 +199,7 @@ class Trainer:
                                                find_unused_parameters=True) ## Multiple GPU
             self.parameters_to_train += list(self.models["predictive_mask"].parameters())
         
-        self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate, weight_decay=self.opt.weight_decay)
+        self.model_optimizer = optim.Adam(self.parameters_to_train, self.opt.learning_rate*self.opt.world_size, weight_decay=self.opt.weight_decay)
         self.model_lr_scheduler = optim.lr_scheduler.StepLR(
             self.model_optimizer, self.opt.scheduler_step_size, 0.1)
 
@@ -734,7 +734,7 @@ class Trainer:
 
         for model_name, model in self.models.items():
             save_path = os.path.join(save_folder, "{}.pth".format(model_name))
-            to_save = model.state_dict()
+            to_save = model.module.state_dict() if self.opt.distributed else model.state_dict()
             if model_name == 'encoder':
                 # save the sizes - these are needed at prediction time
                 to_save['height'] = self.opt.height

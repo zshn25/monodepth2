@@ -22,7 +22,7 @@ This is an unofficial fork of [monodepth2](https://github.com/nianticlabs/monode
     - [x] [PydNet](https://github.com/zshn25/Pydnet-Pytorch)
     
   - Losses
-    - [ ] 
+    - [x] Temporal consistency loss: (Disp outputs must be temporally consistent). Does not improve
     
 * Misc changes
   - [x] In evaluation, we resize the ground-truth to same size as input instead of resizing input (and prediction) to native ground-truth's resolution. (This is to be consistent with the segmentation evaluations)
@@ -48,7 +48,26 @@ The following models were trained and evaluated on KittiRAW at 640x192. The runt
 | ReXUNet  |  0.142  |   1.136  |   5.359  |   0.219  |   0.825  |   0.940  |   0.975  |   2.650  |  31.782  | 8.89 ms   | ![rexnet](assets/img_rexnet.png)     |
 
 
-Licence: Same as [licence for monodepth2](https://github.com/nianticlabs/monodepth2/blob/master/LICENSE) for forked code. Rest is licenced CC.
+### Runtime comparison of different encoders 
+
+| model name | runtime (GPU) |
+| - | - |
+| EfficientNet-Edge-Small | 159 ms |
+| EfficientNet-Lite0                        | 181 ms  |
+| ResNet18                        | 58.3 ms |
+| MobileNetv2                        | 132 ms  |
+| Pydnet's encoder                        | 23.2 ms |
+| MobileNetv3-Small-Minimal                        | 115 ms  |
+
+### Runtime comparison of different decoders 
+
+| model name | runtime (GPU) |
+| - | - |
+| Monodepth2 decoder | 56.6 ms |
+| Pydnet's decoder    | 69.8 ms  |
+| Featdepth's decoder | 98.3 ms |
+
+*Licence*: Same as [licence for monodepth2](https://github.com/nianticlabs/monodepth2/blob/master/LICENSE) for forked code. Rest is licenced CC.
 
 Doc from parent:
 ___
