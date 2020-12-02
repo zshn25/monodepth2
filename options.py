@@ -141,6 +141,8 @@ class MonodepthOptions:
                                  help="normal or shared",
                                  default="separate_resnet",
                                  choices=["posecnn", "separate_resnet", "shared"])
+        self.parser.add_argument("--enable_temporal_consistency_loss",
+                                 action="store_true")
 
         # SYSTEM options
         self.parser.add_argument("--num_workers",
