@@ -8,9 +8,8 @@ This is an unofficial fork of [monodepth2](https://github.com/nianticlabs/monode
 * Dataset changes
   - [x] Load other datasets such as Cityscapes.
   - [x] Load KITTI Depth instead of Velodyne if available.
-  - [x] Loads ground truth depth at the same resolution as the input and can be changed using `--height` and `--width` options.
   - [x] Densify sparse depth using [Sparse Depth Completion](https://github.com/wvangansbeke/Sparse-Depth-Completion)
-  -
+  
 
 * Network architecture changes
   - Joint architecture for the following networks
