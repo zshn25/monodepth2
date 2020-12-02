@@ -112,9 +112,9 @@ class Trainer:
             self.parameters_to_train += list(self.models["fastdepth"].parameters())
 
         else:
-            # self.models["encoder"] = networks.ResnetEncoder(
-            #     self.opt.num_layers, self.opt.weights_init == "pretrained")
-            self.models["encoder"] = networks.EffnetEncoder(pretrained=True)
+            self.models["encoder"] = networks.ResnetEncoder(
+                self.opt.num_layers, self.opt.weights_init == "pretrained")
+            # self.models["encoder"] = networks.EfficientnetEncoder(pretrained=True)
             self.models["encoder"].to(self.device)
             if self.opt.distributed:
                 self.models["encoder"] = DDP(self.models["encoder"],
@@ -374,11 +374,16 @@ class Trainer:
             # Otherwise, we only feed the image with frame_id 0 through the depth encoder
             if self.opt.depth_model_arch in ["resnet", "monodepth"]:
                 outputs = {}
-                for frame_id in  self.opt.frame_ids:
-                    # For each frame_id run the disp network
-                    features = self.models["encoder"](inputs["color_aug", frame_id, 0])
+                if not self.opt.enable_temporal_consistency_loss:
+                    features = self.models["encoder"](inputs["color_aug", 0, 0])
                     _outputs = self.models["depth"](features)
-                    outputs.update({(k[0],frame_id,k[1]):v for k,v in _outputs.items()})
+                    outputs.update({(k[0],0,k[1]):v for k,v in _outputs.items()})
+                else:
+                    for frame_id in  self.opt.frame_ids:
+                        # For each frame_id run the disp network
+                        features = self.models["encoder"](inputs["color_aug", frame_id, 0])
+                        _outputs = self.models["depth"](features)
+                        outputs.update({(k[0],frame_id,k[1]):v for k,v in _outputs.items()})
             else:
                 outputs = self.models["fastdepth"](inputs["color_aug", 0, 0])
 
@@ -477,17 +482,22 @@ class Trainer:
         Generated images are saved into the `outputs` dictionary.
         """
         for scale in self.opt.scales:
-            disp = outputs[("disp", scale)]
-            if self.opt.v1_multiscale:
-                source_scale = scale
-            else:
-                disp = F.interpolate(
-                    disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
-                source_scale = 0
+            for frame_id in self.opt.frame_ids:
+                if (frame_id != 0) and (not self.opt.enable_temporal_consistency_loss):
+                    continue
+                # if (frame_id != 0) and (scale != 0):    #calculate for only scale 0 for other frame_ids
+                #     continue
+                disp = outputs[("disp",frame_id, scale)]
+                if self.opt.v1_multiscale:
+                    source_scale = scale
+                else:
+                    disp = F.interpolate(
+                        disp, [self.opt.height, self.opt.width], mode="bilinear", align_corners=False)
+                    source_scale = 0
 
-            _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
+                _, depth = disp_to_depth(disp, self.opt.min_depth, self.opt.max_depth)
 
-            outputs[("depth", 0, scale)] = depth
+                outputs[("depth", frame_id, scale)] = depth
 
             for i, frame_id in enumerate(self.opt.frame_ids[1:]):
 
@@ -527,7 +537,12 @@ class Trainer:
                         inputs[("color", frame_id, source_scale)],
                         outputs[("sample", frame_id, scale)],
                         padding_mode="border", align_corners=True)
-                    #outputs[("depth", frame_id, scale)] = 
+                    if self.opt.enable_temporal_consistency_loss:
+                        # Warp also the depths from neighboring frames to frame 0
+                        outputs[("depth", frame_id, scale)] = F.grid_sample(
+                            outputs[("depth", frame_id, source_scale)],
+                            outputs[("sample", frame_id, scale)],
+                            padding_mode="border", align_corners=True)
 
                 if not self.opt.disable_automasking:
                     outputs[("color_identity", frame_id, scale)] = \
@@ -562,13 +577,17 @@ class Trainer:
             else:
                 source_scale = 0
 
-            disp = outputs[("disp", scale)]
+            disp = outputs[("disp",0, scale)]
             color = inputs[("color", 0, scale)]
             target = inputs[("color", 0, source_scale)]
+            target_depth = outputs[("depth", 0, source_scale)]
 
-            for frame_id in self.opt.frame_ids[1:]:
+            for frame_id in self.opt.frame_ids[1:]: # for neighboring (warped) frames
                 pred = outputs[("color", frame_id, scale)]
                 reprojection_losses.append(self.compute_reprojection_loss(pred, target))
+                if self.opt.enable_temporal_consistency_loss:# and (scale!=0):
+                    reprojection_losses.append(torch.abs(
+                            outputs[("depth", frame_id, scale)] - target_depth).mean(1,True)*0.1)
 
             reprojection_losses = torch.cat(reprojection_losses, 1)
 
@@ -700,7 +719,7 @@ class Trainer:
 
                 writer.add_image(
                     "disp_{}/{}".format(s, j),
-                    normalize_image(outputs[("disp", s)][j]), self.step)
+                    normalize_image(outputs[("disp",0, s)][j]), self.step)
 
                 if self.opt.predictive_mask:
                     for f_idx, frame_id in enumerate(self.opt.frame_ids[1:]):
